@@ -268,6 +268,17 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
      * action=switch   切换引擎（默认 webview），可选传 fingerprint 种子
      * action=close    关闭 Cloak 进程并回退到 webview
      */
+    private fun okCloak(tool: AITool, session: WebSession, code: String, result: String): ToolResult =
+        ok(
+            tool.name,
+            buildBrowserResponse(
+                code = code,
+                openTabs = renderOpenTabs(),
+                pageState = renderPageState(session),
+                result = result
+            )
+        )
+
     private fun browserSwitchEngine(tool: AITool): ToolResult {
         val action = (param(tool, "action")?.trim()?.lowercase()).orEmpty().ifBlank { "switch" }
         val engineRaw = (param(tool, "engine")?.trim()?.lowercase()).orEmpty().ifBlank { "webview" }
@@ -401,6 +412,16 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserClick(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val sel = param(tool, "selector")?.trim() ?: param(tool, "ref")?.trim()
+                ?: return error(tool.name, "cloak 引擎需要 selector 参数")
+            val out = com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.clickSelector(
+                sessionId = session.id,
+                engine = session.engine,
+                selector = sel
+            )
+            return okCloak(tool, session, "cloak:click", out)
+        }
         val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
         val selector = param(tool, "selector")?.trim()?.takeIf { it.isNotBlank() }
         if (ref == null && selector == null) {
@@ -1305,6 +1326,16 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserEvaluate(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val fn = param(tool, "function")?.trim()
+            if (fn.isNullOrBlank()) return error(tool.name, "function is required")
+            val out = com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.evaluate(
+                sessionId = session.id,
+                engine = session.engine,
+                script = "(function(){return (" + fn + ")();})()"
+            )
+            return okCloak(tool, session, fn, out)
+        }
         val functionSource = param(tool, "function")?.trim()
         if (functionSource.isNullOrBlank()) {
             return error(tool.name, "function is required")
@@ -1724,6 +1755,14 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserTakeScreenshot(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val path = com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.screenshot(
+                context = context.applicationContext,
+                sessionId = session.id,
+                engine = session.engine
+            )
+            return okCloak(tool, session, "cloak:screenshot", path)
+        }
         val type = param(tool, "type")?.trim()?.lowercase(Locale.ROOT).orEmpty().ifBlank { "png" }
         if (type !in setOf("png", "jpeg", "jpg")) {
             return error(tool.name, "type must be png or jpeg")
@@ -1751,6 +1790,18 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserType(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val sel = param(tool, "selector")?.trim() ?: param(tool, "ref")?.trim()
+                ?: return error(tool.name, "cloak 引擎需要 selector 参数")
+            val txt = param(tool, "text") ?: return error(tool.name, "text is required")
+            val out = com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.typeInto(
+                sessionId = session.id,
+                engine = session.engine,
+                selector = sel,
+                text = txt
+            )
+            return okCloak(tool, session, "cloak:type", out)
+        }
         val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
             ?: return error(tool.name, "ref is required")
         val text = param(tool, "text") ?: return error(tool.name, "text is required")
