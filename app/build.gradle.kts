@@ -433,9 +433,10 @@ android {
             }
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // 发布为正式包名，便于覆盖安装并保留已有数据；
+            // 签名仍使用 debug keystore，设备侧已允许无视签名差异安装。
             signingConfig = signingConfigs.getByName("debug")
-            resValue("string", "app_name", "Operit Debug")
+            resValue("string", "app_name", "Operit")
         }
         create("clone") {
             initWith(getByName("debug"))
