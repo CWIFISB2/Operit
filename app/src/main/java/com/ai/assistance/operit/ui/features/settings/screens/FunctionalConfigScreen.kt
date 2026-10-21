@@ -74,6 +74,14 @@ fun FunctionalConfigScreen(
     var isLoading by remember { mutableStateOf(true) }
     var showSaveSuccess by remember { mutableStateOf(false) }
 
+    // 统计跟随主模型的项数与告警项数（一屏可见，避免逐个点开）
+    val totalFunctions = FunctionType.values().size
+    val followMainCount =
+            remember(configMappingWithIndex.value) {
+                configMappingWithIndex.value.values.count {
+                    it.configId == FunctionalConfigManager.DEFAULT_CONFIG_ID
+                }
+            }
     // 加载配置摘要
     LaunchedEffect(Unit) {
         isLoading = true
@@ -136,6 +144,33 @@ fun FunctionalConfigScreen(
                                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                             )
 
+                            // 跟随主模型统计 + 全部跟随
+                            Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                        text = "跟随主模型 $followMainCount/$totalFunctions",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                TextButton(
+                                        onClick = {
+                                            scope.launch {
+                                                functionalConfigManager.resetAllFunctionConfigs()
+                                                showSaveSuccess = true
+                                            }
+                                        },
+                                        enabled = followMainCount < totalFunctions
+                                ) {
+                                    Text(
+                                            text = "全部跟随",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                             Row(
                                     modifier =
                                             Modifier.fillMaxWidth()
@@ -281,11 +316,28 @@ fun FunctionConfigCard(
 
     LaunchedEffect(functionType, currentConfig?.id) {
         mediaSupportWarningResId = null
-        if (
-            functionType != FunctionType.IMAGE_RECOGNITION &&
-            functionType != FunctionType.AUDIO_RECOGNITION &&
-            functionType != FunctionType.VIDEO_RECOGNITION
-        ) {
+        val isRecognitionType =
+            functionType == FunctionType.IMAGE_RECOGNITION ||
+                functionType == FunctionType.AUDIO_RECOGNITION ||
+                functionType == FunctionType.VIDEO_RECOGNITION
+        if (!isRecognitionType) {
+            // 非识别类功能：仅当其为 CHAT 且模型未开启多模态能力时给出提示，
+            // 避免用户在「功能模型分配」页看不到能力缺口。
+            if (functionType == FunctionType.CHAT) {
+                val cfgId = currentConfig?.id ?: FunctionalConfigManager.DEFAULT_CONFIG_ID
+                val cfg: ModelConfigData? = try {
+                    modelConfigManager.getModelConfigFlow(cfgId).first()
+                } catch (e: Exception) {
+                    null
+                }
+                if (cfg != null &&
+                    !cfg.enableDirectImageProcessing &&
+                    !cfg.enableDirectAudioProcessing &&
+                    !cfg.enableDirectVideoProcessing
+                ) {
+                    mediaSupportWarningResId = R.string.functional_config_warning_chat_no_multimodal
+                }
+            }
             return@LaunchedEffect
         }
 
