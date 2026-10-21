@@ -240,6 +240,7 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
                 "browser_fill_form" -> browserFillForm(tool)
                 "browser_handle_dialog" -> browserHandleDialog(tool)
                 "browser_hover" -> browserHover(tool)
+                "browser_switch_engine" -> browserSwitchEngine(tool)
                 "browser_navigate" -> browserNavigate(tool)
                 "browser_navigate_back" -> browserNavigateBack(tool)
                 "browser_network_requests" -> browserNetworkRequests(tool)
@@ -260,6 +261,83 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
         }
     }
 
+    /**
+     * 切换当前浏览器会话的渲染引擎，并返回切换结果。
+     *
+     * action=status   仅查询当前引擎与 Cloak 运行状态
+     * action=switch   切换引擎（默认 webview），可选传 fingerprint 种子
+     * action=close    关闭 Cloak 进程并回退到 webview
+     */
+    private fun browserSwitchEngine(tool: AITool): ToolResult {
+        val action = (param(tool, "action")?.trim()?.lowercase()).orEmpty().ifBlank { "switch" }
+        val engineRaw = (param(tool, "engine")?.trim()?.lowercase()).orEmpty().ifBlank { "webview" }
+        val session =
+            runOnMainSync {
+                getSession(null)
+            }
+
+        if (action == "status") {
+            val current = session?.engine?.name?.lowercase() ?: "none"
+            return ok(
+                tool.name,
+                "browser_engine:" + current + "\n" +
+                    "session:" + (session?.id ?: "(none)") + "\n" +
+                    com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.status()
+            )
+        }
+
+        if (session == null) {
+            return error(tool.name, "No active browser tab. Call browser_navigate first.")
+        }
+
+        if (action == "close") {
+            com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.releaseEngine(session.id)
+            session.engine = com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine.WEBVIEW
+            session.cloakClient = null
+            notifySessionStateChanged(session)
+            return ok(tool.name, "Cloak engine released. Fallback to webview.")
+        }
+
+        val target =
+            when (engineRaw) {
+                "cloak", "cloakbrowser", "chromium" ->
+                    com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine.CLOAK
+                "webview", "system" ->
+                    com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine.WEBVIEW
+                else -> return error(tool.name, "engine must be one of: webview, cloak")
+            }
+
+        val seedRaw = param(tool, "fingerprint")?.trim()
+        val seedInt = seedRaw?.toIntOrNull()
+        val fingerprint =
+            when {
+                seedInt != null ->
+                    com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakFingerprint(
+                        profileId = session.id,
+                        fingerprintSeed = seedInt
+                    )
+                !seedRaw.isNullOrBlank() ->
+                    com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakFingerprint(
+                        profileId = session.id,
+                        fingerprintSeed = seedRaw.hashCode()
+                    )
+                else -> session.cloakFingerprint
+            }
+        if (fingerprint != null) {
+            session.cloakFingerprint = fingerprint
+        }
+
+        val message =
+            com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.switchEngine(
+                context = context.applicationContext,
+                sessionId = session.id,
+                target = target
+            )
+        session.engine = target
+        notifySessionStateChanged(session)
+        return ok(tool.name, message)
+    }
+
     private fun browserNavigate(tool: AITool): ToolResult {
         val targetUrl = param(tool, "url")?.trim()
         if (targetUrl.isNullOrBlank()) {
@@ -271,6 +349,27 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
             runOnMainSync {
                 getSession(null) ?: createSessionTabOnMain(context.applicationContext, "about:blank")
             }
+        if (session.isCloak) {
+            val cloakOutcome =
+                com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngineBridge.navigate(
+                    context = context.applicationContext,
+                    sessionId = session.id,
+                    engine = session.engine,
+                    url = targetUrl
+                )
+            session.currentUrl = targetUrl
+            session.pageLoaded = true
+            notifySessionStateChanged(session)
+            return ok(
+                tool.name,
+                buildBrowserResponse(
+                    code = "cloak:goto(" + quoteJsCode(targetUrl) + ")",
+                    openTabs = renderOpenTabs(),
+                    pageState = renderPageState(session),
+                    result = cloakOutcome
+                )
+            )
+        }
         val markers = captureActionMarkers(session)
 
         runOnMainSync<Unit> {
