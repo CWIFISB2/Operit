@@ -1538,7 +1538,7 @@ open class GeminiProvider(
     ) {
         AppLogger.d(TAG, "开始处理响应流")
         val responseBody = response.body ?: throw IOException(context.getString(R.string.gemini_response_empty))
-        val reader = responseBody.charStream().buffered()
+        val reader = Utf8StreamLineReader(responseBody.byteStream())
         val responseState = GeminiResponseState()
 
         // 注意：不再使用fullContent累积所有内容
