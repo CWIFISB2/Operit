@@ -3393,7 +3393,6 @@ object SystemToolPromptsInternal {
                                 )
                         ),
                         ToolPrompt(
-                        ToolPrompt(
                             name = "browser_switch_engine",
                             description = "查询或切换当前浏览器标签页的渲染引擎。webview 为内置 Android WebView；cloak 为 proot 内反检测 Chromium。action=status 查询，action=switch 切换，action=close 释放。",
                             parametersStructured =
@@ -3403,6 +3402,7 @@ object SystemToolPromptsInternal {
                                     ToolParameterSchema(name = "fingerprint", type = "string", description = "可选指纹种子，数字或任意字符串（自动哈希）", required = false)
                                 )
                         ),
+                        ToolPrompt(
                             name = "browser_navigate",
                             description = "让当前活动 tab 跳转到指定 URL。若当前没有 tab，会自动创建首个 tab。",
                             parametersStructured =
