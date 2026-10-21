@@ -175,6 +175,23 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
         @Volatile var viewportHeightPx: Int? = null
         @Volatile var hasExplicitViewportSize: Boolean = false
         @Volatile var lastSnapshot: BrowserSnapshot? = null
+
+        // ---- 双引擎支持：默认 WebView，可切换到 CloakBrowser ----
+        @Volatile
+        var engine: com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine =
+            com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine.WEBVIEW
+
+        /** 该会话的指纹配置（仅 CLOAK 引擎使用）。 */
+        @Volatile
+        var cloakFingerprint: com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakFingerprint? = null
+
+        /** CloakBrowser 的 CDP 客户端（仅 CLOAK 引擎使用）。 */
+        @Volatile
+        var cloakClient: com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakCdpClient? = null
+
+        val isCloak: Boolean
+            get() = engine == com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.BrowserEngine.CLOAK
+
         val stateSignal: Object = Object()
         @Volatile var stateVersion: Long = 0L
         val consoleEntries: MutableList<BrowserConsoleEntry> = mutableListOf()
