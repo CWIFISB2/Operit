@@ -1600,7 +1600,7 @@ open class ClaudeProvider(
                             return@withContext
                         }
 
-                        val reader = responseBody.charStream().buffered()
+                        val reader = Utf8StreamLineReader(responseBody.byteStream())
                         var currentToolParser: StreamingJsonXmlConverter? = null
                         var currentToolTagName: String? = null
                         var isInToolCall = false
