@@ -3116,6 +3116,7 @@
     <string name="test">测试</string>
     <string name="expand_desc">展开</string>
     <string name="selected_desc">已选择</string>
+    <string name="functional_config_warning_chat_no_multimodal">警告：当前对话模型未开启识图/音频/视频直传能力，多模态输入将走回退链路。如需直接处理媒体，请更换支持多模态的模型并开启对应开关。</string>
     <string name="functional_config_warning_image_unsupported">警告：当前所选模型未启用“支持识图”，图片识别可能不可用。请更换支持视觉的模型并开启“模型支持识图”。</string>
     <string name="functional_config_warning_audio_unsupported">警告：当前所选模型未启用“支持音频解析”，音频识别/转写可能不可用。请更换支持音频输入/转写的模型并开启“模型支持音频解析”。</string>
     <string name="functional_config_warning_video_unsupported">警告：当前所选模型未启用“支持视频解析”，视频理解可能不可用。请更换支持视频/图像输入的模型并开启“模型支持视频解析”。</string>
