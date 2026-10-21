@@ -100,6 +100,16 @@ fun ToolPermissionSettingsScreen(navigateBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        item {
+            // 工具面概览：一眼看出有多少工具、多少已单独授权
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                InfoChip(label = "授权项", value = "${toolPermissions.size}", modifier = Modifier.weight(1f))
+                InfoChip(label = "结构化能力", value = "${allTools.size}", modifier = Modifier.weight(1f))
+            }
+        }
 
         item {
             Card(
@@ -403,6 +413,29 @@ fun CompactPermissionLevelSelector(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
+        }
+    }
+}
+
+/** 概览小卡片：左侧说明、右侧数字。 */
+@Composable
+private fun InfoChip(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
