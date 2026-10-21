@@ -3105,7 +3105,7 @@ open class OpenAIProvider(
      * 处理 OpenAI 流式响应
      */
     private suspend fun processStreamingResponse(
-        reader: java.io.BufferedReader,
+        reader: Utf8StreamLineReader,
         emitter: StreamEmitter,
         onTokensUpdated: suspend (input: Long, cachedInput: Long, output: Long) -> Unit,
         context: Context,
@@ -3334,7 +3334,7 @@ open class OpenAIProvider(
                         // 根据stream参数处理响应
                         if (stream) {
                             AppLogger.d("AIService", "[req=$requestTraceId] 【发送消息】开始读取流式响应")
-                            val reader = responseBody.charStream().buffered()
+                            val reader = Utf8StreamLineReader(responseBody.byteStream())
                             processStreamingResponse(
                                 reader,
                                 emitter,
