@@ -3,24 +3,53 @@ package com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak
 import android.content.Context
 import com.ai.assistance.operit.util.AppLogger
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * CloakBrowser 工具门面：把 CDP 能力包装成 v1 工具可直接调用的方法。
- * 所有方法都是同步阻塞，调用方需放到后台线程。
+ * 会话级 CloakBrowser 工具门面。
+ *
+ * 支持多会话：每个 sessionId 独立持有 CDP 客户端与指纹配置，
+ * 与 v1 原有的多标签浏览语义保持一致。
  */
 internal object CloakBrowserTools {
     private const val TAG = "CloakTools"
 
-    @Volatile private var client: CloakCdpClient? = null
-    @Volatile private var fingerprint: CloakFingerprint = CloakFingerprint()
+    private class SessionState(
+        @Volatile var client: CloakCdpClient? = null,
+        @Volatile var fingerprint: CloakFingerprint = CloakFingerprint()
+    )
 
-    /** 启动（或复用）CloakBrowser。 */
-    fun start(context: Context, config: CloakFingerprint = fingerprint): String {
-        fingerprint = config
+    private val sessions = ConcurrentHashMap<String, SessionState>()
+
+    private fun stateOf(sessionId: String): SessionState =
+        sessions.getOrPut(sessionId) { SessionState() }
+
+    /** 绑定已有 CDP 客户端到会话。 */
+    fun attach(sessionId: String, client: CloakCdpClient) {
+        stateOf(sessionId).client = client
+        AppLogger.i(TAG, "会话 $sessionId 已绑定 CloakBrowser")
+    }
+
+    /** 解绑会话。 */
+    fun detach(sessionId: String) {
+        val st = sessions.remove(sessionId) ?: return
+        runCatching { st.client?.close() }
+        AppLogger.i(TAG, "会话 $sessionId 已解绑")
+    }
+
+    /** 读取会话指纹。 */
+    fun fingerprintOf(sessionId: String): CloakFingerprint? =
+        sessions[sessionId]?.fingerprint
+
+    /** 启动并绑定。 */
+    fun start(context: Context, sessionId: String, config: CloakFingerprint): String {
+        val st = stateOf(sessionId)
+        st.fingerprint = config
         val c = CloakLauncher.launch(context, config)
-        client = c
+        st.client = c
         return JSONObject().apply {
             put("engine", "cloak")
+            put("session", sessionId)
             put("port", CloakLauncher.status().port)
             put("pid", CloakLauncher.status().pid)
             put("version", CloakLauncher.status().version)
@@ -29,8 +58,8 @@ internal object CloakBrowserTools {
     }
 
     /** 导航。 */
-    fun navigate(url: String, timeoutMs: Int = 30_000): String {
-        val c = requireClient()
+    fun navigate(sessionId: String, url: String, timeoutMs: Int = 30_000): String {
+        val c = requireClient(sessionId)
         c.navigate(url, timeoutMs)
         return JSONObject().apply {
             put("url", c.evaluate("location.href")?.toString() ?: url)
@@ -40,47 +69,46 @@ internal object CloakBrowserTools {
     }
 
     /** 执行 JS。 */
-    fun eval(script: String): String {
-        val v = requireClient().evaluate(script)
+    fun eval(sessionId: String, script: String): String {
+        val v = requireClient(sessionId).evaluate(script)
         return v?.toString() ?: "null"
     }
 
-    /** 截图，返回 PNG 文件路径。 */
-    fun screenshot(context: Context): String {
-        val bytes = requireClient().screenshot()
+    /** 截图，返回 PNG 路径。 */
+    fun screenshot(sessionId: String, context: Context): String {
+        val bytes = requireClient(sessionId).screenshot()
         val dir = java.io.File(context.cacheDir, "cloak_shots").apply { mkdirs() }
-        val f = java.io.File(dir, "shot_${System.currentTimeMillis()}.png")
+        val f = java.io.File(dir, "shot_${sessionId}_${System.currentTimeMillis()}.png")
         f.writeBytes(bytes)
         return f.absolutePath
     }
 
-    /** 点击 CSS 选择器匹配的元素。 */
-    fun clickSelector(selector: String): String {
-        val c = requireClient()
+    /** 按选择器点击。 */
+    fun clickSelector(sessionId: String, selector: String): String {
+        val c = requireClient(sessionId)
         val box = c.evaluate(
             """
             (function(){
               var el = document.querySelector(${JSONObject.quote(selector)});
               if (!el) return null;
               var r = el.getBoundingClientRect();
-              return {x: r.left + r.width/2, y: r.top + r.height/2, w: r.width, h: r.height};
+              return {x: r.left + r.width/2, y: r.top + r.height/2};
             })()
             """.trimIndent()
         ) as? JSONObject ?: throw IllegalStateException("选择器无匹配: $selector")
         c.click(box.optDouble("x"), box.optDouble("y"))
-        return JSONObject().put("clicked", selector)
-            .put("x", box.optDouble("x")).put("y", box.optDouble("y")).toString()
+        return JSONObject().put("clicked", selector).toString()
     }
 
-    /** 点击坐标。 */
-    fun clickAt(x: Double, y: Double): String {
-        requireClient().click(x, y)
+    /** 按坐标点击。 */
+    fun clickAt(sessionId: String, x: Double, y: Double): String {
+        requireClient(sessionId).click(x, y)
         return JSONObject().put("clicked", "$x,$y").toString()
     }
 
-    /** 在指定选择器输入文本（聚焦后 insertText）。 */
-    fun typeInto(selector: String, text: String): String {
-        val c = requireClient()
+    /** 输入文本。 */
+    fun typeInto(sessionId: String, selector: String, text: String): String {
+        val c = requireClient(sessionId)
         c.evaluate(
             "(function(){var el=document.querySelector(${JSONObject.quote(selector)});if(!el)return false;el.focus();return true;})()"
         )
@@ -89,33 +117,36 @@ internal object CloakBrowserTools {
     }
 
     /** 回车。 */
-    fun pressEnter(): String {
-        requireClient().pressKey("Enter", "Enter", 13)
+    fun pressEnter(sessionId: String): String {
+        requireClient(sessionId).pressKey("Enter", "Enter", 13)
         return "{\"key\":\"Enter\"}"
     }
 
     /** 滚动。 */
-    fun scroll(deltaY: Double): String {
-        requireClient().scroll(deltaY)
+    fun scroll(sessionId: String, deltaY: Double): String {
+        requireClient(sessionId).scroll(deltaY)
         return JSONObject().put("scrolled", deltaY).toString()
     }
 
     /** 页面文本。 */
-    fun text(maxChars: Int = 8000): String {
-        val t = requireClient().evaluate("document.body ? document.body.innerText : ''")?.toString() ?: ""
+    fun text(sessionId: String, maxChars: Int = 8000): String {
+        val t = requireClient(sessionId)
+            .evaluate("document.body ? document.body.innerText : ''")?.toString() ?: ""
         return if (t.length > maxChars) t.substring(0, maxChars) else t
     }
 
     /** 页面 HTML。 */
-    fun html(maxChars: Int = 20000): String {
-        val t = requireClient().evaluate("document.documentElement.outerHTML")?.toString() ?: ""
+    fun html(sessionId: String, maxChars: Int = 20000): String {
+        val t = requireClient(sessionId)
+            .evaluate("document.documentElement.outerHTML")?.toString() ?: ""
         return if (t.length > maxChars) t.substring(0, maxChars) else t
     }
 
     /** 设置指纹。 */
-    fun setFingerprint(config: CloakFingerprint): String {
-        fingerprint = config
-        val c = client ?: return "{\"applied\":false,\"reason\":\"not started\"}"
+    fun setFingerprint(sessionId: String, config: CloakFingerprint): String {
+        val st = stateOf(sessionId)
+        st.fingerprint = config
+        val c = st.client ?: return "{\"applied\":false,\"reason\":\"not started\"}"
         c.setUserAgent(config.userAgent, config.platform)
         c.setTimezone(config.timezone)
         c.setDeviceMetrics(config.viewportWidth, config.viewportHeight, config.deviceScale, config.mobile)
@@ -126,11 +157,10 @@ internal object CloakBrowserTools {
             put("applied", true)
             put("platform", config.platform)
             put("timezone", config.timezone)
-            put("ua", config.userAgent)
         }.toString()
     }
 
-    /** 状态。 */
+    /** 引擎状态。 */
     fun status(): String {
         val s = CloakLauncher.status()
         return JSONObject().apply {
@@ -140,16 +170,18 @@ internal object CloakBrowserTools {
             put("profile", s.profileId)
             put("version", s.version)
             put("error", s.lastError ?: "")
+            put("sessions", sessions.size)
         }.toString()
     }
 
-    /** 关闭。 */
-    fun stop(): String {
-        client = null
+    /** 关闭全部。 */
+    fun stopAll(): String {
+        sessions.keys.toList().forEach { detach(it) }
         CloakLauncher.shutdown()
         return "{\"stopped\":true}"
     }
 
-    private fun requireClient(): CloakCdpClient =
-        client ?: throw IllegalStateException("CloakBrowser 未启动，请先调用 cloak_start")
+    private fun requireClient(sessionId: String): CloakCdpClient =
+        sessions[sessionId]?.client
+            ?: throw IllegalStateException("会话 $sessionId 未启动 CloakBrowser 引擎")
 }
