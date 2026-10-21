@@ -3034,6 +3034,7 @@
     <string name="test_result_collapse">Collapse</string>
     <string name="expand_desc">Expand</string>
     <string name="selected_desc">Selected</string>
+    <string name="functional_config_warning_chat_no_multimodal">Warning: the chat model has no multimodal capability enabled (image/audio/video). Multimodal input will fall back to a degraded path.</string>
     <string name="functional_config_warning_image_unsupported">Warning: the selected model is not marked as “supports vision”, so image recognition may not work. Switch to a model that supports vision and enable “Model supports vision”.</string>
     <string name="functional_config_warning_audio_unsupported">Warning: the selected model is not marked as “supports audio”, so audio recognition/transcription may not work. Switch to a model that supports audio and enable “Model supports audio”.</string>
     <string name="functional_config_warning_video_unsupported">Warning: the selected model is not marked as “supports video”, so video understanding may not work. Switch to a model that supports video and enable “Model supports video”.</string>
