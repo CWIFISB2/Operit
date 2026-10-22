@@ -349,6 +349,14 @@ val syncMainAssets by tasks.registering(Sync::class) {
     group = "build setup"
     dependsOn(syncSttModelAssets)
 
+    // 必须禁用 up-to-date 与 build cache：src/main/assets 由 CI 的
+    // sync_example_packages.py 在配置阶段之后才写入（例如 examples/browser.js
+    // 覆盖 assets/packages/browser.js）。Gradle 只按输入路径与内容哈希判定，
+    // 而 ~/.gradle 被 actions/cache 跨运行复用，导致这里命中上一次运行的旧输出，
+    // 把 CI 刚同步的新文件又换回旧版本。Sync 成本仅为复制数百 KB，禁用缓存无副作用。
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+
     from("src/main/assets") {
         exclude("models/**")
     }
