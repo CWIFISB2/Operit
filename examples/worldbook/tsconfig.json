@@ -2,8 +2,10 @@
   "compilerOptions": {
     "target": "es2020",
     "module": "commonjs",
-    "outDir": "./dist",
-    "lib": ["es2020"],
+    "outDir": "./.tsc_out",
+    "lib": [
+      "es2020"
+    ],
     "declaration": false,
     "strict": false,
     "noImplicitAny": false,
@@ -33,6 +35,7 @@
     "../types/**/*.d.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist"
   ]
 }

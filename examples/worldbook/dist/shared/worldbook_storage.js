@@ -11,7 +11,7 @@ exports.writeWorldBookGroups = writeWorldBookGroups;
 const LEGACY_WORLD_BOOK_DIR = "/sdcard/Download/Operit/worldbook";
 const LEGACY_WORLD_BOOK_FILE = `${LEGACY_WORLD_BOOK_DIR}/entries.json`;
 function getWorldBookDir() {
-    return ToolPkg.getConfigDir();
+    return "/sdcard/Download/Operit/plugins/com.operit.worldbook";
 }
 function getWorldBookFile() {
     return `${getWorldBookDir()}/entries.json`;

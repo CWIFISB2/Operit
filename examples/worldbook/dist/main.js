@@ -7,9 +7,47 @@ exports.systemPromptHook = systemPromptHook;
 exports.finalizeHook = finalizeHook;
 exports.registerToolPkg = registerToolPkg;
 const index_ui_js_1 = __importDefault(require("./ui/worldbook_manager/index.ui.js"));
+const v2_ui_js_1 = __importDefault(require("./ui/v2_panel/index.ui.js"));
 const worldbook_storage_js_1 = require("./shared/worldbook_storage.js");
 const worldbook_variables_js_1 = require("./shared/worldbook_variables.js");
-const WORLDBOOK_ROUTE = "toolpkg:com.operit.worldbook:ui:worldbook_manager";
+const task_expectation_bridge_js_1 = require("./shared/task_expectation_bridge.js");
+const wb_inject_v2_js_1 = require("./shared/wb_inject_v2.js");
+const WORLDBOOK_ROUTE = "toolpkg:com.operit.worldbook_plus:ui:worldbook_manager";
+const WORLDBOOK_ROUTE_V2 = "toolpkg:com.operit.worldbook_plus:ui:v2_panel";
+const V2_SWITCH_FILE = "/sdcard/Download/Operit/plugins/com.operit.worldbook/v2_switch.json";
+async function readV2Switch() {
+    try {
+        const r = await Tools.Files.read(V2_SWITCH_FILE);
+        const txt = String((r && r.content) || "").trim();
+        if (!txt) return true;
+        const cfg = JSON.parse(txt);
+        return cfg.engine !== false;
+    }
+    catch (_e) {
+        return true;
+    }
+}
+async function systemPromptHook(event) {
+    try {
+        if (await readV2Switch()) {
+            const r = await wb_inject_v2_js_1.systemPromptHook(event);
+            if (r !== undefined) return r;
+        }
+    }
+    catch (_e) { }
+    return await systemPromptHookV1(event);
+}
+async function finalizeHook(event) {
+    try {
+        if (await readV2Switch()) {
+            const r = await wb_inject_v2_js_1.finalizeHook(event);
+            if (r !== undefined) return r;
+        }
+    }
+    catch (_e) { }
+    return await finalizeHookV1(event);
+}
+
 function matchesEntry(entry, text) {
     if (!entry.keywords || entry.keywords.length === 0) {
         return false;
@@ -170,6 +208,11 @@ async function readEnabledEntries() {
         return [];
     }
 }
+function entryVisibleInChat(entry, chatId) {
+    if (!(0, task_expectation_bridge_js_1.isReservedEntry)(entry))
+        return true;
+    return (0, task_expectation_bridge_js_1.isReservedEntryForChat)(entry, chatId);
+}
 function renderEntries(entries, variableContext) {
     if (!variableContext) {
         return entries;
@@ -192,18 +235,21 @@ async function resolveVariableContext(event, callerCardId) {
         return null;
     }
 }
-async function systemPromptHook(event) {
+async function systemPromptHookV1(event) {
     const stage = event.eventName || event.event;
     if (stage !== "after_compose_system_prompt") {
         return null;
     }
+    const currentChatId = String(event?.eventPayload?.chatId || "");
+    await (0, task_expectation_bridge_js_1.autoSyncExpectationEntries)(currentChatId);
     const enabledEntries = await readEnabledEntries();
     const callerCardId = await resolveCurrentCharacterCardId(event);
     const variableContext = await resolveVariableContext(event, callerCardId);
     const hitEntries = enabledEntries.filter((entry) => entry.always_active &&
         entry.inject_target === "system" &&
         normalizeInjectPosition(entry) !== "at_depth" &&
-        matchesCharacterCard(entry, callerCardId));
+        matchesCharacterCard(entry, callerCardId) &&
+        entryVisibleInChat(entry, currentChatId));
     if (hitEntries.length === 0) {
         return null;
     }
@@ -212,7 +258,7 @@ async function systemPromptHook(event) {
     const { prependEntries, appendEntries } = splitEntriesByPosition(renderedEntries);
     return { systemPrompt: applyTextInjection(currentPrompt, prependEntries, appendEntries) };
 }
-async function finalizeHook(event) {
+async function finalizeHookV1(event) {
     const stage = event.eventName || event.event;
     if (stage !== "before_finalize_prompt") {
         return null;
@@ -315,7 +361,18 @@ async function finalizeHook(event) {
         processedInput: nextProcessedInput
     };
 }
+async function markHook(line) {
+    try {
+        const p = "/sdcard/Download/Operit/plugins/com.operit.worldbook/hook_probe.log";
+        let old = "";
+        try { const r = await Tools.Files.read(p); old = String((r && r.content) || ""); }
+        catch (_e) { old = ""; }
+        await Tools.Files.write(p, old + "\n" + new Date().toISOString() + " " + line);
+    }
+    catch (_e) { }
+}
 function registerToolPkg() {
+    console.log("[WBPLUS_ENTER] registerToolPkg called");
     void (0, worldbook_storage_js_1.ensureWorldBookStorage)();
     ToolPkg.registerUiRoute({
         id: "worldbook_manager",
@@ -339,13 +396,44 @@ function registerToolPkg() {
         icon: Icons.Book,
         order: 210
     });
-    ToolPkg.registerSystemPromptComposeHook({
-        id: "worldbook_always_active",
-        function: systemPromptHook
+    ToolPkg.registerUiRoute({
+        id: "v2_panel",
+        route: WORLDBOOK_ROUTE_V2,
+        runtime: "compose_dsl",
+        screen: v2_ui_js_1.default,
+        params: {},
+        title: {
+            zh: "世界书 v2 增强",
+            en: "World Book v2"
+        }
     });
-    ToolPkg.registerPromptFinalizeHook({
-        id: "worldbook_keyword_inject",
-        function: finalizeHook
+    ToolPkg.registerNavigationEntry({
+        id: "worldbook_v2_toolbox",
+        route: WORLDBOOK_ROUTE_V2,
+        surface: "toolbox",
+        title: {
+            zh: "世界书 v2 增强",
+            en: "World Book v2"
+        },
+        icon: Icons.Book,
+        order: 211
     });
+    try {
+        ToolPkg.registerSystemPromptComposeHook({
+            id: "worldbook_always_active_v2",
+            function: systemPromptHook
+        });
+        void markHook("compose_ok");
+    }
+    catch (e) { void markHook("compose_FAIL " + String((e && e.message) || e)); }
+    try {
+        ToolPkg.registerPromptFinalizeHook({
+            id: "worldbook_keyword_inject_v2",
+            function: finalizeHook
+        });
+        void markHook("finalize_ok");
+    }
+    catch (e) { void markHook("finalize_FAIL " + String((e && e.message) || e)); }
+    console.log("[WBPLUS_DONE] registerToolPkg finished");
     return true;
 }

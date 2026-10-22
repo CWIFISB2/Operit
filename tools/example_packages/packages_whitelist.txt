@@ -41,4 +41,3 @@ worldbook
 qqbot
 thinking_guidance
 plan_mode
-worldbook_plus

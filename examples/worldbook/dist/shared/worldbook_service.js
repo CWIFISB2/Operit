@@ -487,7 +487,8 @@ function toWorldBookListEntry(entry) {
         inject_target: entry.inject_target || "system",
         inject_position: normalizeInjectPosition(entry.inject_position),
         insertion_depth: normalizeNumber(entry.insertion_depth, 0),
-        character_card_id: entry.character_card_id || ""
+        character_card_id: entry.character_card_id || "",
+        recall_mode: entry.recall_mode === "ai" ? "ai" : "keyword"
     };
 }
 async function listWorldBookEntries() {
@@ -520,6 +521,7 @@ async function createWorldBookEntry(params) {
         inject_position: injectPosition,
         insertion_depth: normalizeNumber(params.insertion_depth, 0),
         character_card_id: String(params.character_card_id || "").trim(),
+        recall_mode: params.recall_mode === "ai" ? "ai" : "keyword",
         created_at: now,
         updated_at: now
     };
@@ -605,6 +607,9 @@ async function updateWorldBookEntry(params) {
     }
     if (params.insertion_depth != null) {
         nextEntry.insertion_depth = normalizeNumber(params.insertion_depth, nextEntry.insertion_depth ?? 0);
+    }
+    if (params.recall_mode != null) {
+        nextEntry.recall_mode = params.recall_mode === "ai" ? "ai" : "keyword";
     }
     if (nextEntry.inject_target === "assistant") {
         nextEntry.inject_position = "at_depth";
