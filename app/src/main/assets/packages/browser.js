@@ -381,3 +381,4 @@ exports.type = type;
 exports.wait_for = wait_for;
 exports.tabs = tabs;
 exports.main = browserMain;
+// asset-refresh: force repack after switch_engine landed
