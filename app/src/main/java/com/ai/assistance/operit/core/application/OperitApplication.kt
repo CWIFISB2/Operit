@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.system.Os
+import com.ai.assistance.operit.core.opencode.OpencodeBootstrap
 import com.ai.assistance.operit.util.AppLogger
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.work.Configuration as WorkConfiguration
@@ -183,6 +184,21 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
                 TokenUsageRepository.getInstance(applicationContext).ensureInitialized()
             } catch (error: Throwable) {
                 AppLogger.e(TAG, "Token statistics migration failed", error)
+            }
+        }
+
+        // opencode 真实客户端二进制自愈：落到 filesDir/opencode/opencode。
+        // 放在 applicationScope(IO) 里异步执行，避免拖慢冷启动；
+        // 失败只记日志，不影响 App 主流程。
+        applicationScope.launch {
+            try {
+                if (!OpencodeBootstrap.isReady(applicationContext)) {
+                    OpencodeBootstrap.ensure(applicationContext) { message ->
+                        AppLogger.i(TAG, "[opencode] $message")
+                    }
+                }
+            } catch (error: Throwable) {
+                AppLogger.e(TAG, "opencode bootstrap failed", error)
             }
         }
 
