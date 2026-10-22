@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "toolpkg_id": "com.operit.worldbook_plus",
+  "version": "2.0.0",
+  "api_version": "1.0.1",
+  "main": "dist/main.js",
+  "author": [
+    "V·娱乐+operit"
+  ],
+  "display_name": {
+    "zh": "世界书增强 v2",
+    "en": "World Book Plus v2",
+    "default": "World Book Plus v2"
+  },
+  "description": {
+    "zh": "世界书增强 v2（内置）：完整替代官方世界书。含 v1 管理 UI + v2 增强面板双入口、双注入 hook（v2 引擎，可回退）+ 40 工具（v1 29 + v2 11）。新增：概率触发、互斥分组、sticky/cooldown/delay 时效、递归激活控制、4 种关键词逻辑、order 排序、角色过滤、Token 预算、干跑诊断。",
+    "en": "World Book Plus v2 (built-in): full replacement with manager UI + v2 enhancement panel, dual inject hooks (v2 engine with v1 fallback), 40 tools.",
+    "default": "World Book Plus v2"
+  },
+  "enabled_by_default": true,
+  "subpackages": [
+    {
+      "id": "worldbook_plus_crud",
+      "entry": "dist/packages/worldbook_tools.js",
+      "enabled_by_default": true,
+      "display_name": {
+        "zh": "世界书条目工具",
+        "en": "World Book CRUD"
+      },
+      "description": {
+        "zh": "条目管理工具",
+        "en": "CRUD tools"
+      }
+    },
+    {
+      "id": "worldbook_plus_tools",
+      "entry": "dist/packages/worldbook_plus_tools.js",
+      "enabled_by_default": true,
+      "display_name": {
+        "zh": "世界书增强工具",
+        "en": "World Book Plus Tools"
+      },
+      "description": {
+        "zh": "增强分析工具集",
+        "en": "Enhanced tools"
+      }
+    },
+    {
+      "id": "worldbook_v2_tools",
+      "entry": "dist/packages/worldbook_v2_tools.js",
+      "enabled_by_default": true,
+      "display_name": {
+        "zh": "世界书 v2 增强工具",
+        "en": "World Book v2 Tools"
+      },
+      "description": {
+        "zh": "v2 增强字段：概率/分组/时效/递归/逻辑/排序",
+        "en": "v2 enhanced fields"
+      }
+    }
+  ]
+}
