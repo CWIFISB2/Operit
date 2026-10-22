@@ -40,6 +40,7 @@ fun SettingsScreen(
         navigateToUserPreferences: () -> Unit,
         navigateToGitHubAccount: () -> Unit,
         navigateToToolPermissions: () -> Unit,
+        navigateToOutputGuard: () -> Unit,
         navigateToModelConfig: () -> Unit,
         navigateToThemeSettings: () -> Unit,
         navigateToGlobalDisplaySettings: () -> Unit,
@@ -256,6 +257,13 @@ fun SettingsScreen(
                                 subtitle = stringResource(id = R.string.settings_tool_permissions_subtitle),
                                 icon = Icons.Default.AdminPanelSettings,
                                 onClick = navigateToToolPermissions
+                        )
+
+                        CompactSettingsItem(
+                                title = "输出守卫",
+                                subtitle = "拦截协议残留、截断结构、角色标记泄漏",
+                                icon = Icons.Default.Security,
+                                onClick = navigateToOutputGuard
                         )
 
                         CompactSettingsItem(

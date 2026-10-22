@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.system.Os
 import com.ai.assistance.operit.core.opencode.OpencodeBootstrap
+import com.ai.assistance.operit.core.chat.guard.OutputGuardInstaller
 import com.ai.assistance.operit.util.AppLogger
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.work.Configuration as WorkConfiguration
@@ -214,6 +215,8 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
 
         // Initialize AIMessageManager
         AIMessageManager.initialize(this)
+        // 内置输出守卫：注册到 PromptFinalize 钩子链
+        OutputGuardInstaller.install(this)
         PluginRegistry.initializeBuiltins()
         AppLifecycleHookPluginRegistry.dispatchAsync(
             event = AppLifecycleEvent.APPLICATION_CREATE,
