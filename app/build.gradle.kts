@@ -574,8 +574,15 @@ tasks.named("preBuild") {
     dependsOn(verifyExternallyBuiltNativeLibraries)
 }
 
-tasks.matching { it.name.matches(Regex("merge.*Assets")) }.configureEach {
+tasks.matching { it.name.matches(Regex("(merge|generate).*Assets")) }.configureEach {
     dependsOn(syncMainAssets)
+    // generate*Assets 在 AGP 里会把 sourceSets.main.assets（此处被指向
+    // build/generated/main-assets）当作自己的输出，但它只按自身输入快照判定
+    // up-to-date，感知不到 syncMainAssets 在同一目录里换过内容。
+    // 结果是 generateDebugAssets 打出 UP-TO-DATE 后直接跳过，
+    // merge 阶段拿到的仍是上一次的旧文件。这里一并禁用缓存。
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
 }
 
 kotlin {
