@@ -74,14 +74,17 @@ fun FunctionalConfigScreen(
     var isLoading by remember { mutableStateOf(true) }
     var showSaveSuccess by remember { mutableStateOf(false) }
 
-    // 统计跟随主模型的项数与告警项数（一屏可见，避免逐个点开）
+    // 统计「跟随对话模型」的项数（一屏可见，避免逐个点开）
+    // 口径对齐 Operit2：看 followsChat 标记，而不是「是否等于默认配置」
     val totalFunctions = FunctionType.values().size
-    val followMainCount =
+    val followChatCount =
             remember(configMappingWithIndex.value) {
-                configMappingWithIndex.value.values.count {
-                    it.configId == FunctionalConfigManager.DEFAULT_CONFIG_ID
-                }
+                configMappingWithIndex.value
+                        .filterKeys { it != FunctionType.CHAT }
+                        .values
+                        .count { it.followsChat }
             }
+    val followChatTarget = totalFunctions - 1 // 除 CHAT 自身外都可跟随
     // 加载配置摘要
     LaunchedEffect(Unit) {
         isLoading = true
@@ -151,18 +154,21 @@ fun FunctionalConfigScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                        text = "跟随主模型 $followMainCount/$totalFunctions",
+                                        text = "跟随对话模型 $followChatCount/$followChatTarget",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 TextButton(
                                         onClick = {
                                             scope.launch {
-                                                functionalConfigManager.resetAllFunctionConfigs()
+                                                // 对齐 Operit2：全部跟随 = 所有非 CHAT 跟随对话模型。
+                                                // configMappingWithIndex 是 collectAsState 的只读 State，
+                                                // DataStore 写入后 Flow 会自动推送新值，无需手动刷新。
+                                                functionalConfigManager.setAllFunctionsFollowChat()
                                                 showSaveSuccess = true
                                             }
                                         },
-                                        enabled = followMainCount < totalFunctions
+                                        enabled = followChatCount < followChatTarget
                                 ) {
                                     Text(
                                             text = "全部跟随",
