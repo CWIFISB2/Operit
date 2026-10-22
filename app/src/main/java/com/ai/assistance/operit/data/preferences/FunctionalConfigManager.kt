@@ -31,7 +31,16 @@ private val Context.functionalConfigDataStore: DataStore<Preferences> by
 @Serializable
 data class FunctionConfigMapping(
     val configId: String = FunctionalConfigManager.DEFAULT_CONFIG_ID,
-    val modelIndex: Int = 0
+    val modelIndex: Int = 0,
+    /**
+     * 动态跟随对话模型（CHAT）的绑定。
+     *
+     * 语义对齐 Operit2 的 FunctionalConfigManager.followsChat：
+     * - 仅非 CHAT 功能可为 true，CHAT 自身恒为 false
+     * - 为 true 时实际生效的 configId/modelIndex 始终取 CHAT 的当前绑定
+     * - 保存时先把 followsChat 项同步成 CHAT 的快照，保证存储自洽
+     */
+    val followsChat: Boolean = false
 )
 
 internal data class FunctionConfigMappingRepair(
@@ -50,6 +59,10 @@ internal fun remapDeletedConfigReferences(
         .sortedBy { it.name }
 
     affectedFunctions.forEach { functionType ->
+        // 跟随对话模型的项不指向被删配置，保持原状
+        if (updatedMapping[functionType]?.followsChat == true) {
+            return@forEach
+        }
         updatedMapping[functionType] = FunctionConfigMapping(
             configId = FunctionalConfigManager.DEFAULT_CONFIG_ID,
             modelIndex = 0,
@@ -126,7 +139,41 @@ class FunctionalConfigManager(private val context: Context) {
                 val functionType = functionTypesByName[key] ?: return@forEach
                 normalized[functionType] = value
             }
-            return normalized
+            return normalizeFollowChat(normalized)
+        }
+
+        /**
+         * 对齐 O2 的 follow-chat 归一化：
+         * - CHAT 自身永不为 followsChat
+         * - 所有 followsChat 功能，把 configId/modelIndex 快照成 CHAT 当前值
+         *
+         * 注意：入参是不可变 Map，这里必须构造新 Map 返回，不能原地赋值。
+         */
+        private fun normalizeFollowChat(
+                mapping: Map<FunctionType, FunctionConfigMapping>
+        ): Map<FunctionType, FunctionConfigMapping> {
+            val rawChat = mapping[FunctionType.CHAT]
+            val chat = (rawChat ?: FunctionConfigMapping(DEFAULT_CONFIG_ID, 0, false))
+                    .copy(followsChat = false)
+            val result = mutableMapOf<FunctionType, FunctionConfigMapping>()
+            mapping.forEach { (functionType, value) ->
+                result[functionType] =
+                        if (functionType == FunctionType.CHAT) {
+                            chat
+                        } else if (value.followsChat) {
+                            FunctionConfigMapping(
+                                    configId = chat.configId,
+                                    modelIndex = chat.modelIndex,
+                                    followsChat = true
+                            )
+                        } else {
+                            value
+                        }
+            }
+            if (!result.containsKey(FunctionType.CHAT)) {
+                result[FunctionType.CHAT] = chat
+            }
+            return result
         }
 
         private fun defaultMapping(): Map<FunctionType, FunctionConfigMapping> {
@@ -173,6 +220,33 @@ class FunctionalConfigManager(private val context: Context) {
         return mapping[functionType] ?: FunctionConfigMapping(DEFAULT_CONFIG_ID, 0)
     }
 
+    /**
+     * 返回实际生效的绑定：若该功能 followsChat，则直接取对话模型（CHAT）的当前绑定。
+     * 对齐 O2 的 resolveEffectiveBinding。
+     */
+    suspend fun getEffectiveConfigMappingForFunction(
+            functionType: FunctionType
+    ): FunctionConfigMapping {
+        val mapping = functionConfigMappingWithIndexFlow.first()
+        val self = mapping[functionType] ?: FunctionConfigMapping(DEFAULT_CONFIG_ID, 0)
+        if (functionType != FunctionType.CHAT && self.followsChat) {
+            val chat = mapping[FunctionType.CHAT]
+            if (chat != null) {
+                return chat.copy(followsChat = false)
+            }
+        }
+        return self.copy(followsChat = false)
+    }
+
+    /**
+     * 判断某功能当前是否跟随对话模型。
+     */
+    suspend fun isFunctionFollowingChat(functionType: FunctionType): Boolean {
+        if (functionType == FunctionType.CHAT) return false
+        val mapping = functionConfigMappingWithIndexFlow.first()
+        return mapping[functionType]?.followsChat == true
+    }
+
     // 设置指定功能的配置ID
     suspend fun setConfigForFunction(functionType: FunctionType, configId: String) {
         setConfigForFunction(functionType, configId, 0)
@@ -185,14 +259,66 @@ class FunctionalConfigManager(private val context: Context) {
         saveFunctionConfigMappingWithIndex(mapping)
     }
 
-    // 重置指定功能的配置为默认
+        /**
+     * 让指定功能动态跟随对话模型（CHAT）。
+     * CHAT 自身不允许跟随自己。
+     */
+    suspend fun setFunctionFollowChat(functionType: FunctionType) {
+        require(functionType != FunctionType.CHAT) { "chat binding cannot follow itself" }
+        val current = functionConfigMappingWithIndexFlow.first().toMutableMap()
+        val chat = current[FunctionType.CHAT] ?: FunctionConfigMapping(DEFAULT_CONFIG_ID, 0)
+        current[functionType] = FunctionConfigMapping(
+                configId = chat.configId,
+                modelIndex = chat.modelIndex,
+                followsChat = true
+        )
+        saveFunctionConfigMappingWithIndex(normalizeFollowChat(current))
+    }
+
+    /**
+     * 让所有非 CHAT 功能统一跟随对话模型（CHAT）。
+     * 这是「全部跟随」的正确语义，对齐 O2 的 setAllFunctionsFollowChat。
+     */
+    suspend fun setAllFunctionsFollowChat() {
+        val current = functionConfigMappingWithIndexFlow.first().toMutableMap()
+        val chat = current[FunctionType.CHAT] ?: FunctionConfigMapping(DEFAULT_CONFIG_ID, 0)
+        FunctionType.values()
+                .filter { it != FunctionType.CHAT }
+                .forEach { functionType ->
+                    current[functionType] = FunctionConfigMapping(
+                            configId = chat.configId,
+                            modelIndex = chat.modelIndex,
+                            followsChat = true
+                    )
+                }
+        current[FunctionType.CHAT] = chat.copy(followsChat = false)
+        saveFunctionConfigMappingWithIndex(normalizeFollowChat(current))
+    }
+
+// 重置指定功能的配置为默认
     suspend fun resetFunctionConfig(functionType: FunctionType) {
         setConfigForFunction(functionType, DEFAULT_CONFIG_ID)
     }
 
-    // 重置所有功能配置为默认
+    /**
+     * 「全部跟随」：所有非 CHAT 功能跟随对话模型（CHAT）。
+     *
+     * 注意：这与「全部重置为默认配置」不是一回事。
+     * 对齐 Operit2 的 setAllFunctionsFollowChat 语义。
+     */
     suspend fun resetAllFunctionConfigs() {
-        val defaultMapping = FunctionType.values().associateWith { FunctionConfigMapping(DEFAULT_CONFIG_ID, 0) }
+        setAllFunctionsFollowChat()
+    }
+
+    /**
+     * 真正把所有功能重置回默认配置（含 CHAT）。
+     * 保留给需要硬重置的调用方。
+     */
+    suspend fun resetAllFunctionConfigsToDefault() {
+        val defaultMapping =
+                FunctionType.values().associateWith {
+                    FunctionConfigMapping(DEFAULT_CONFIG_ID, 0, false)
+                }
         saveFunctionConfigMappingWithIndex(defaultMapping)
     }
 }
