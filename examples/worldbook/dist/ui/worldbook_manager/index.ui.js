@@ -286,6 +286,7 @@ function Screen(ctx) {
     const dbgReport = dbgReportRef.current;
     const setDbgReport = (v) => { dbgReportRef.current = v; setUiTick(uiTick + 1); };
     const [dbgSens, setDbgSens] = ctx.useState("dbgSens", "70");
+    const [dbgEngine, setDbgEngine] = ctx.useState("dbgEngine", "v3");
     const [dbgBudget, setDbgBudget] = ctx.useState("dbgBudget", "8000");
     const dbgBlockRef = ctx.useRef("dbgBlockRef", "");
     const dbgBlock = dbgBlockRef.current;
@@ -333,6 +334,118 @@ function Screen(ctx) {
         setImportPath("");
         setImporting(false);
     }
+    // ===== 诊断面板（v3） =====
+    const diagReportRef = ctx.useRef("diagReportRef", null);
+    const diagTickState = ctx.useState("diagTick", 0);
+    const diagTick = diagTickState[0];
+    const setDiagTick = diagTickState[1];
+    const diagFilterState = ctx.useState("diagFilter", "all");
+    const diagFilter = diagFilterState[0];
+    const setDiagFilter = diagFilterState[1];
+
+    function runDiagNow() {
+        try {
+            const D = require("../../shared/wb_diagnostics.js");
+            const rep = D.runDiagnostics(entries || [], { groups: groups || [] });
+            diagReportRef.current = rep;
+            setDiagTick(diagTick + 1);
+        } catch (e) {
+            diagReportRef.current = { ok: false, issues: [{ severity: "error", code: "DIAG_CRASH", title: "诊断引擎异常", detail: String((e && e.message) || e), entryId: "", entryName: "", key: "" }], summary: { entries: 0, total: 1, error: 1, warning: 0, info: 0 } };
+            setDiagTick(diagTick + 1);
+        }
+    }
+
+    function diagSeverityColor(sev) {
+        if (sev === "error") return colors.error;
+        if (sev === "warning") return colors.tertiary || colors.primary;
+        return colors.onSurfaceVariant;
+    }
+
+    function diagSeverityLabel(sev) {
+        if (sev === "error") return "错误";
+        if (sev === "warning") return "警告";
+        return "提示";
+    }
+
+    function renderDiagPanel() {
+        const rep = diagReportRef.current;
+        const nodes = [];
+
+        // 顶部返回 + 重新诊断
+        nodes.push(UI.Row({ fillMaxWidth: true, spacing: 8, verticalAlignment: "center" }, [
+            UI.OutlinedButton({ onClick: () => setView("list"), shape: { cornerRadius: 12 } }, [
+                UI.Row({ spacing: 6, verticalAlignment: "center" }, [
+                    UI.Icon({ name: "arrowBack", size: 16, tint: colors.onSurface }),
+                    UI.Text({ text: t.buttonBack, color: colors.onSurface, fontWeight: "bold" })
+                ])
+            ]),
+            UI.Button({ onClick: () => runDiagNow(), shape: { cornerRadius: 12 } }, [
+                UI.Text({ text: "重新诊断" })
+            ])
+        ]));
+
+        if (!rep) {
+            nodes.push(UI.Text({ text: "尚未运行诊断", style: "bodySmall", color: colors.onSurfaceVariant }));
+            return UI.LazyColumn({ fillMaxSize: true, spacing: 12, padding: { horizontal: 12, vertical: 8 } }, nodes);
+        }
+
+        // 汇总卡
+        const sm = rep.summary || {};
+        nodes.push(UI.Card({ containerColor: colors.surface, shape: { cornerRadius: 18 }, fillMaxWidth: true }, [
+            UI.Column({ padding: 16, spacing: 8, fillMaxWidth: true }, [
+                UI.Text({ text: "诊断报告", style: "titleMedium", fontWeight: "bold", color: colors.onSurface }),
+                UI.Text({ text: "条目 " + (sm.entries || 0) + " ｜ 问题 " + (sm.total || 0), style: "bodySmall", color: colors.onSurfaceVariant }),
+                UI.Row({ spacing: 8 }, [
+                    UI.Text({ text: "错误 " + (sm.error || 0), style: "bodySmall", color: colors.error, fontWeight: "bold" }),
+                    UI.Text({ text: "警告 " + (sm.warning || 0), style: "bodySmall", color: colors.onSurfaceVariant }),
+                    UI.Text({ text: "提示 " + (sm.info || 0), style: "bodySmall", color: colors.onSurfaceVariant })
+                ]),
+                rep.ok
+                    ? UI.Text({ text: "✓ 没有阻断性问题", style: "bodySmall", color: colors.primary })
+                    : UI.Text({ text: "✗ 有 " + (sm.error || 0) + " 个错误需要处理", style: "bodySmall", color: colors.error })
+            ])
+        ]));
+
+        // 过滤器
+        nodes.push(UI.Row({ spacing: 8 }, [
+            diagFilter === "all"
+                ? UI.FilledTonalButton({ onClick: () => setDiagFilter("all"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "全部", style: "bodySmall" })])
+                : UI.OutlinedButton({ onClick: () => setDiagFilter("all"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "全部", style: "bodySmall" })]),
+            diagFilter === "error"
+                ? UI.FilledTonalButton({ onClick: () => setDiagFilter("error"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "错误", style: "bodySmall" })])
+                : UI.OutlinedButton({ onClick: () => setDiagFilter("error"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "错误", style: "bodySmall" })]),
+            diagFilter === "warning"
+                ? UI.FilledTonalButton({ onClick: () => setDiagFilter("warning"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "警告", style: "bodySmall" })])
+                : UI.OutlinedButton({ onClick: () => setDiagFilter("warning"), shape: { cornerRadius: 12 }, height: 34 }, [UI.Text({ text: "警告", style: "bodySmall" })])
+        ]));
+
+        // 问题列表
+        const all = Array.isArray(rep.issues) ? rep.issues : [];
+        const shown = diagFilter === "all" ? all : all.filter(function (i) { return i.severity === diagFilter; });
+
+        if (!shown.length) {
+            nodes.push(UI.Text({ text: "没有符合条件的问题", style: "bodySmall", color: colors.onSurfaceVariant }));
+        }
+
+        for (let di = 0; di < shown.length && di < 200; di += 1) {
+            const it = shown[di];
+            const sevColor = diagSeverityColor(it.severity);
+            nodes.push(UI.Card({ containerColor: colors.surface, elevation: 1, shape: { cornerRadius: 14 }, fillMaxWidth: true }, [
+                UI.Column({ padding: 12, spacing: 4, fillMaxWidth: true }, [
+                    UI.Row({ spacing: 6, verticalAlignment: "center" }, [
+                        UI.Text({ text: diagSeverityLabel(it.severity), style: "bodySmall", color: sevColor, fontWeight: "bold" }),
+                        UI.Text({ text: it.title, style: "bodyMedium", color: colors.onSurface, fontWeight: "bold" })
+                    ]),
+                    it.entryName ? UI.Text({ text: "条目：" + it.entryName, style: "bodySmall", color: colors.onSurfaceVariant }) : null,
+                    it.detail ? UI.Text({ text: it.detail, style: "bodySmall", color: colors.onSurfaceVariant }) : null,
+                    it.entryId ? UI.OutlinedButton({ onClick: () => { doEdit(it.entryId); }, shape: { cornerRadius: 10 }, height: 30 }, [UI.Text({ text: "去修改", style: "bodySmall" })]) : null
+                ].filter(Boolean))
+            ]));
+        }
+
+        return UI.LazyColumn({ fillMaxSize: true, spacing: 10, padding: { horizontal: 12, vertical: 8 } }, nodes);
+    }
+
     function renderEnhancePanel() {
         const d = enhData;
         const card = (title, lines) => UI.Card({ containerColor: colors.surface, elevation: 1, modifier: ctx.Modifier.fillMaxWidth() }, [
@@ -796,6 +909,39 @@ function Screen(ctx) {
         var wb = entries || [];
         var low = probe.toLowerCase();
         var hits = [];
+        var eng = String(dbgEngine || "v3").toLowerCase();
+        if (eng === "v3") {
+            var V3 = null;
+            try { V3 = require("../../shared/wb_match.js"); } catch (_v3e) { V3 = null; }
+            if (V3 && typeof V3.matchesEntry === "function") {
+                var v3hits = [];
+                for (var vi = 0; vi < wb.length; vi += 1) {
+                    var ve = wb[vi];
+                    try {
+                        if (!V3.matchesEntry(ve, probe)) { continue; }
+                        var vpos = ve.inject_position || ve.position || "append";
+                        var vdep = Math.max(0, parseInt(ve.depth != null ? ve.depth : ve.insertion_depth, 10) || 0);
+                        var vline = vpos === "at_depth" ? ("索引 " + Math.max(0, 20 - vdep)) : (vpos === "prepend" ? "索引 0" : "索引 20");
+                        var vkeys = [];
+                        try { vkeys = V3.collectPrimary(ve) || []; } catch (_ke) { vkeys = []; }
+                        v3hits.push({
+                            name: String(ve.name || ve.id || ""),
+                            score: 99,
+                            target: ve.inject_target || "system",
+                            position: vpos,
+                            depth: vdep,
+                            line: vline,
+                            tokens: 0,
+                            matched: vkeys.slice(0, 4)
+                        });
+                    } catch (_ve2) { }
+                }
+                setDbgHits(v3hits);
+                setDbgReport("v3 引擎命中 " + v3hits.length + " / " + wb.length + " 条（表达式键 + 引号族）");
+                setDbgBlock("");
+                return;
+            }
+        }
         wb.forEach(function (e) {
             try {
                 var d = (0, wb_data_js_1.scoreEntryDetailed)(e, low);
@@ -1044,6 +1190,7 @@ function Screen(ctx) {
             UI.Column({ padding: 12, fillMaxWidth: true, spacing: 6 }, [
                 UI.Text({ text: "注入调试器", fontWeight: "bold", color: colors.onSurface }),
                 UI.TextField({ label: "模拟输入文本", value: dbgInput, onValueChange: setDbgInput, singleLine: false, fillMaxWidth: true }),
+                UI.TextField({ label: "匹配引擎（v3 / legacy）", value: dbgEngine, onValueChange: setDbgEngine, singleLine: true, fillMaxWidth: true }),
                 UI.TextField({ label: "灵敏度 0-100", value: dbgSens, onValueChange: setDbgSens, singleLine: true, fillMaxWidth: true }),
                 UI.TextField({ label: "token 预算上限", value: dbgBudget, onValueChange: setDbgBudget, singleLine: true, fillMaxWidth: true }),
                 UI.OutlinedButton({ onClick: function () { wbPlusUnifiedRun(); }, fillMaxWidth: true, shape: { cornerRadius: 12 } }, [UI.Text({ text: aiJudgeBusy ? "运行中…（本地评分 + AI 判定）" : "运行调试（本地评分 + AI 判定）" })]),
@@ -1055,7 +1202,7 @@ function Screen(ctx) {
             ].concat((dbgHits || []).length === 0
                 ? [UI.Text({ text: "（无命中）", style: "bodySmall", color: colors.onSurfaceVariant })]
                 : (dbgHits || []).map(function (h) {
-                    return UI.Text({ text: "· " + h.name + " [" + h.score + "] " + h.target + "/" + h.position + " → " + h.line + " (" + h.tokens + "t)", style: "bodySmall", color: colors.onSurfaceVariant });
+                    return UI.Text({ text: "· " + h.name + (h.matched && h.matched.length ? "  ← " + h.matched.join("/") : " [" + h.score + "]") + " " + h.target + "/" + h.position + " → " + h.line, style: "bodySmall", color: colors.onSurfaceVariant });
                 })).concat([
                 UI.Row({ spacing: 8 }, [
                     UI.OutlinedButton({ onClick: function () { wbPlusCopyBlock(); }, shape: { cornerRadius: 12 } }, [UI.Text({ text: "复制全文" })])
@@ -3000,9 +3147,178 @@ function Screen(ctx) {
                 onClick: () => doSave(),
                 fillMaxWidth: true,
                 shape: { cornerRadius: 14 }
-            })
+            }),
+            // ===== v2 增强字段（合并自原独立面板） =====
+            UI.Card({
+                containerColor: colors.surface,
+                shape: { cornerRadius: 18 },
+                fillMaxWidth: true
+            }, [
+                UI.Column({ padding: 16, spacing: 10, fillMaxWidth: true }, [
+                    UI.Text({
+                        text: "增强字段（v3 引擎）",
+                        style: "titleMedium",
+                        fontWeight: "bold",
+                        color: colors.onSurface
+                    }),
+                    UI.Text({
+                        text: "概率 / 分组 / 时序 / 递归 / 角色过滤 / 关键逻辑",
+                        style: "bodySmall",
+                        color: colors.onSurfaceVariant
+                    }),
+                    v2FieldRows(isEdit ? editId : "")
+                ])
+            ])
         ]);
     }
+    // ===== v2 增强字段渲染（合并自原 v2 独立面板）=====
+    // 直接读条目上的 v2 字段，用 v2_patch_entry 写回，不新增独立入口。
+    function v2FieldRows(entryId) {
+        const wbFields = require("../../shared/wb_fields.js");
+        const wbV2Store = require("../../shared/wb_store_v2.js");
+
+        const [v2State, setV2State] = ctx.useState("v2f_" + String(entryId || "new"), require("../../shared/wb_fields.js").normalizeV2Entry({}));
+        const [v2Busy, setV2Busy] = ctx.useState("v2b_" + String(entryId || "new"), false);
+        const [v2Msg, setV2Msg] = ctx.useState("v2m_" + String(entryId || "new"), "");
+
+        function loadV2() {
+            if (!entryId) {
+                setV2State(wbFields.normalizeV2Entry({}));
+                return;
+            }
+            Promise.resolve()
+                .then(() => wbV2Store.readEntriesV2())
+                .then((list) => {
+                    const arr = Array.isArray(list) ? list : [];
+                    let hit = null;
+                    for (let i = 0; i < arr.length; i += 1) {
+                        if (String(arr[i] && arr[i].id) === String(entryId)) {
+                            hit = arr[i];
+                            break;
+                        }
+                    }
+                    setV2State(wbFields.normalizeV2Entry(hit || {}));
+                })
+                .catch((e) => setV2Msg("读取失败：" + String((e && e.message) || e)));
+        }
+
+        // 首次进入自动加载一次
+        const [v2Inited, setV2Inited] = ctx.useState("v2i_" + String(entryId || "new"), false);
+        if (!v2Inited) {
+            setV2Inited(true);
+            loadV2();
+        }
+
+        const v = v2State || require("../../shared/wb_fields.js").normalizeV2Entry({});
+
+        function patch(patchObj) {
+            setV2Busy(true);
+            setV2Msg("");
+            Promise.resolve()
+                .then(() => wbV2Store.patchEntryV2(String(entryId), patchObj))
+                .then((r) => {
+                    if (r && r.ok === false) {
+                        setV2Msg("保存失败：" + String(r.error || "unknown"));
+                    } else {
+                        setV2Msg("已保存");
+                        loadV2();
+                    }
+                })
+                .catch((e) => setV2Msg("保存异常：" + String((e && e.message) || e)))
+                .then(() => setV2Busy(false));
+        }
+
+        function numField(label, key, hint) {
+            return UI.Column({ spacing: 2 }, [
+                UI.Text({ text: label, style: "bodySmall", color: colors.onSurfaceVariant }),
+                UI.TextField({
+                    value: String(v[key] == null ? 0 : v[key]),
+                    onValueChange: (txt) => {
+                        const n = Number(String(txt).replace(/[^0-9.-]/g, ""));
+                        patch({ [key]: Number.isFinite(n) ? n : 0 });
+                    },
+                    singleLine: true,
+                    fillMaxWidth: true
+                }),
+                hint ? UI.Text({ text: hint, style: "bodySmall", color: colors.onSurfaceVariant }) : null
+            ].filter(Boolean));
+        }
+
+        function boolField(label, key) {
+            return UI.Row({ spacing: 8, verticalAlignment: "center" }, [
+                UI.Switch({
+                    checked: v[key] === true,
+                    onCheckedChange: (on) => patch({ [key]: on === true })
+                }),
+                UI.Text({ text: label, style: "bodySmall", color: colors.onSurface })
+            ]);
+        }
+
+        function textField(label, key, hint) {
+            return UI.Column({ spacing: 2 }, [
+                UI.Text({ text: label, style: "bodySmall", color: colors.onSurfaceVariant }),
+                UI.TextField({
+                    value: String(v[key] == null ? "" : v[key]),
+                    onValueChange: (txt) => patch({ [key]: String(txt) }),
+                    singleLine: true,
+                    fillMaxWidth: true
+                }),
+                hint ? UI.Text({ text: hint, style: "bodySmall", color: colors.onSurfaceVariant }) : null
+            ].filter(Boolean));
+        }
+
+        function chipRow(label, key, options) {
+            const nodes = [UI.Text({ text: label, style: "bodySmall", color: colors.onSurfaceVariant })];
+            const row = [];
+            for (let i = 0; i < options.length; i += 1) {
+                const opt = options[i];
+                const active = String(v[key] || "") === opt;
+                row.push(
+                    active
+                        ? UI.FilledTonalButton({ onClick: () => patch({ [key]: opt }), shape: { cornerRadius: 12 }, height: 32 }, [
+                              UI.Text({ text: opt, style: "bodySmall" })
+                          ])
+                        : UI.OutlinedButton({ onClick: () => patch({ [key]: opt }), shape: { cornerRadius: 12 }, height: 32 }, [
+                              UI.Text({ text: opt, style: "bodySmall" })
+                          ])
+                );
+            }
+            nodes.push(UI.Row({ spacing: 6 }, row));
+            return UI.Column({ spacing: 4 }, nodes);
+        }
+
+        const rows = [
+            UI.Text({ text: "匹配", fontWeight: "bold", color: colors.onSurface }),
+            chipRow("关键词逻辑", "keyLogic", ["and_any", "and_all", "not_any", "not_all"]),
+            boolField("全词匹配", "matchWholeWords"),
+
+            UI.Text({ text: "概率与分组", fontWeight: "bold", color: colors.onSurface }),
+            numField("触发概率 %", "probability", "100 = 必定触发"),
+            textField("包含组", "inclusionGroups", "逗号分隔的组名"),
+            numField("组权重", "groupWeight", ""),
+            boolField("优先包含", "prioritizeInclusion"),
+
+            UI.Text({ text: "时效", fontWeight: "bold", color: colors.onSurface }),
+            numField("粘性（轮）", "sticky", "触发后保持 N 轮"),
+            numField("冷却（轮）", "cooldown", "触发后 N 轮内不再触发"),
+            numField("延迟（轮）", "delay", "从第 N 轮开始才考虑"),
+
+            UI.Text({ text: "递归", fontWeight: "bold", color: colors.onSurface }),
+            boolField("内容不参与递归", "excludeRecursion"),
+            boolField("不被递归触发", "preventRecursion"),
+
+            UI.Text({ text: "位置", fontWeight: "bold", color: colors.onSurface }),
+            chipRow("注入位置", "position", ["prepend", "append", "at_depth"]),
+            numField("深度", "depth", "position = at_depth 时生效"),
+            numField("排序", "order", "越小越优先"),
+
+            v2Busy ? UI.Text({ text: "保存中…", style: "bodySmall", color: colors.primary }) : null,
+            v2Msg ? UI.Text({ text: v2Msg, style: "bodySmall", color: colors.primary }) : null
+        ].filter(Boolean);
+
+        return UI.Column({ spacing: 10, fillMaxWidth: true }, rows);
+    }
+
     function renderImportForm() {
         return UI.Column({
             padding: 12,
@@ -3121,6 +3437,7 @@ function Screen(ctx) {
                 renderToolbarAction("createNewFolder", t.groupNewButton, doOpenGroupCreate),
                 renderToolbarAction("uploadFile", t.buttonImport, doOpenImport),
                 renderToolbarAction("info", "增强分析", () => { loadEnhance(); setView("enhance"); }),
+                renderToolbarAction("warning", "诊断", () => { runDiagNow(); setView("diag"); }),
                 renderToolbarAction("add", t.newEntryButton, doCreate),
                 renderToolbarAction("check", "批量选择", () => { setSelMode(!selMode); wbPlusSelClear(); setSelGroupId(""); }, selMode),
                 renderToolbarAction("visibility", showHidden ? "隐藏可见" : "显示隐藏", () => setShowHidden(!showHidden), showHidden)
@@ -3179,6 +3496,9 @@ function Screen(ctx) {
     }
     if (view === "enhance") {
         return renderEnhancePanel();
+    }
+    if (view === "diag") {
+        return renderDiagPanel();
     }
     if (loading || !hasLoadedOnce) {
         items.push(UI.Column({

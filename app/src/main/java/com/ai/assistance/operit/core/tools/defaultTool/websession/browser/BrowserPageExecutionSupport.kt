@@ -2046,31 +2046,28 @@ internal fun StandardBrowserSessionTools.evaluateJavascriptAsync(
                 pending.latch.countDown()
                 return@post
             }
+            // CSP 安全：不再用 (0, eval) 执行字符串，改为把表达式源码直接作为脚本体注入。
+            // WebView.evaluateJavascript 走原生通道，不受页面 CSP 的 unsafe-eval 限制。
+            // 表达式本身是自包含 IIFE（(async function(){...})()），可直接作为顶层代码执行。
             val wrapped =
                 """
-                (function() {
+                (async function() {
                     try {
-                        const operitExpression = ${quoteJs(expression)};
-                        const operitValue = (0, eval)(operitExpression);
-                        Promise.resolve(operitValue)
-                            .then(function(value) {
-                                let payload;
-                                try {
-                                    payload = JSON.stringify({ ok: true, value: value });
-                                } catch (_) {
-                                    payload = JSON.stringify({ ok: true, value: String(value) });
-                                }
-                                window.OperitAsyncBridge.resolve(${quoteJs(callId)}, payload);
-                            })
-                            .catch(function(error) {
-                                window.OperitAsyncBridge.reject(
-                                    ${quoteJs(callId)},
-                                    String(error && (error.stack || error.message || error) || "Async execution failed")
-                                );
-                            });
+                        const operitValue = await (async function() {
+                            return await (
+                """ + expression + """
+                            );
+                        })();
+                        let payload;
+                        try {
+                            payload = JSON.stringify({ ok: true, value: operitValue });
+                        } catch (_) {
+                            payload = JSON.stringify({ ok: true, value: String(operitValue) });
+                        }
+                        window.OperitAsyncBridge.resolve(""" + quoteJs(callId) + """, payload);
                     } catch (error) {
                         window.OperitAsyncBridge.reject(
-                            ${quoteJs(callId)},
+                            """ + quoteJs(callId) + """,
                             String(error && (error.stack || error.message || error) || "Async execution failed")
                         );
                     }

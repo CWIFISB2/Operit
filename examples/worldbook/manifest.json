@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "toolpkg_id": "com.operit.worldbook",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "api_version": "1.0.1",
   "main": "dist/main.js",
   "author": [
@@ -15,9 +15,9 @@
     "default": "World Book"
   },
   "description": {
-    "zh": "世界书 v2（内置增强版）：在原官方世界书基础上集成 v2 引擎。新增概率触发、互斥分组、sticky/cooldown/delay 时效、递归激活控制、4 种关键词逻辑、order 排序、角色过滤、Token 预算、干跑诊断；保留原管理 UI，并新增 v2 增强面板。共 40 工具（v1 29 + v2 11）。",
-    "en": "World Book v2 (built-in enhanced): integrates the v2 engine on top of the official world book. Adds probability, inclusion groups, sticky/cooldown/delay timing, recursion control, 4 key-logic modes, ordering, character filter, token budget, dry-run diagnostics. Keeps the original manager UI and adds a v2 panel. 40 tools total (v1 29 + v2 11).",
-    "default": "World Book v2"
+    "zh": "世界书 v3：匹配引擎重写（表达式键 / 三种边界模式 / 8 种引号族 / 4 种关键词逻辑）+ 20 项诊断检查 + 关键词审计 + 匹配试跑 + 条目解释。保留 v1 全部接口，兼容现有数据。共 15 个工具（v1 29 + v2 11 + v3 4，v2 子包内合并）。",
+    "en": "World Book v3: rewritten match engine (expression keys / 3 boundary modes / 8 quote families / 4 key-logic modes) + 20 diagnostic checks + keyword audit + match dry-run + entry explain. Keeps v1 APIs, compatible with existing data. 15 tools in v2 subpackage (v1 29 + v2 11 + v3 4).",
+    "default": "World Book v3"
   },
   "enabled_by_default": true,
   "subpackages": [
@@ -52,12 +52,12 @@
       "entry": "dist/packages/worldbook_v2_tools.js",
       "enabled_by_default": true,
       "display_name": {
-        "zh": "世界书 v2 增强工具",
-        "en": "World Book v2 Tools"
+        "zh": "世界书 v3 引擎工具",
+        "en": "World Book v3 Engine"
       },
       "description": {
-        "zh": "v2 增强字段：概率/分组/时效/递归/逻辑/排序",
-        "en": "v2 enhanced fields"
+        "zh": "v3 表达式键匹配/诊断/关键词审计/试跑/条目解释 + v2 增强字段",
+        "en": "v3 expression keys, diagnostics, keyword audit, test match, entry explain + v2 fields"
       }
     }
   ]

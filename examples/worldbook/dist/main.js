@@ -396,28 +396,6 @@ function registerToolPkg() {
         icon: Icons.Book,
         order: 210
     });
-    ToolPkg.registerUiRoute({
-        id: "v2_panel",
-        route: WORLDBOOK_ROUTE_V2,
-        runtime: "compose_dsl",
-        screen: v2_ui_js_1.default,
-        params: {},
-        title: {
-            zh: "世界书 v2 增强",
-            en: "World Book v2"
-        }
-    });
-    ToolPkg.registerNavigationEntry({
-        id: "worldbook_v2_toolbox",
-        route: WORLDBOOK_ROUTE_V2,
-        surface: "toolbox",
-        title: {
-            zh: "世界书 v2 增强",
-            en: "World Book v2"
-        },
-        icon: Icons.Book,
-        order: 211
-    });
     try {
         ToolPkg.registerSystemPromptComposeHook({
             id: "worldbook_always_active_v2",

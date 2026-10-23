@@ -523,3 +523,169 @@ exports.v2_stats = function (p) { return wrap(v2Stats, p); };
 exports.v2_dry_run = function (p) { return wrap(v2DryRun, p); };
 exports.v2_export_st = function (p) { return wrap(v2ExportSt, p); };
 exports.v2_migrate = function (p) { return wrap(v2Migrate, p); };
+
+// ===== v3 体检工具（合并进本子包，避免新增子包）=====
+var wb_match_3 = require("../shared/wb_match.js");
+var wb_diag_3 = require("../shared/wb_diagnostics.js");
+
+async function v3AuditKeywords(params) {
+    var p2 = params || {};
+    var limit = Number(p2.sample_limit) > 0 ? Number(p2.sample_limit) : 20;
+    var entries = await wb_data_js_1.readEntries();
+    var rep = wb_match_3.auditKeywords(entries);
+    var lines = [];
+    var i, nMax;
+    lines.push("=== 关键词审计 ===");
+    lines.push("条目 " + rep.stats.entries + " | 关键词 " + rep.stats.totalKeys + " (去重后 " + rep.stats.uniqueKeys + ") | 问题 " + rep.stats.issueCount);
+    lines.push("");
+    if (rep.never.length) {
+        lines.push("[永不触发] " + rep.never.length + " 项");
+        nMax = Math.min(rep.never.length, limit);
+        for (i = 0; i < nMax; i += 1) lines.push("  - " + rep.never[i].entry + " / " + rep.never[i].key + " -- " + rep.never[i].reason);
+        if (rep.never.length > nMax) lines.push("  ... 还有 " + (rep.never.length - nMax) + " 项");
+        lines.push("");
+    }
+    if (rep.overbroad.length) {
+        lines.push("[过宽关键词] " + rep.overbroad.length + " 项");
+        nMax = Math.min(rep.overbroad.length, limit);
+        for (i = 0; i < nMax; i += 1) lines.push("  - " + rep.overbroad[i].entry + " / " + rep.overbroad[i].key + " -- " + rep.overbroad[i].reason);
+        if (rep.overbroad.length > nMax) lines.push("  ... 还有 " + (rep.overbroad.length - nMax) + " 项");
+        lines.push("");
+    }
+    if (rep.duplicates.length) {
+        lines.push("[重复关键词] " + rep.duplicates.length + " 项");
+        nMax = Math.min(rep.duplicates.length, limit);
+        for (i = 0; i < nMax; i += 1) lines.push("  - " + rep.duplicates[i].key + " 被 " + rep.duplicates[i].count + " 条共用: " + rep.duplicates[i].entries.join("、"));
+        if (rep.duplicates.length > nMax) lines.push("  ... 还有 " + (rep.duplicates.length - nMax) + " 项");
+        lines.push("");
+    }
+    if (rep.regexBad.length) {
+        lines.push("[正则错误] " + rep.regexBad.length + " 项");
+        for (i = 0; i < Math.min(rep.regexBad.length, limit); i += 1) lines.push("  - " + rep.regexBad[i].entry + " / " + rep.regexBad[i].key + " -- " + rep.regexBad[i].reason);
+        lines.push("");
+    }
+    if (!rep.stats.issueCount) lines.push("OK 没有发现问题");
+    return { success: true, report: rep, text: lines.join("\n") };
+}
+
+async function v3Diagnose(params) {
+    var entries = await wb_data_js_1.readEntries();
+    var groups = [];
+    try {
+        var g = await wb_data_js_1.readGroups();
+        groups = Array.isArray(g) ? g : [];
+    } catch (_e) { groups = []; }
+    var rep = wb_diag_3.runDiagnostics(entries, { groups: groups });
+    var lines = [];
+    var i, oi, sub;
+    lines.push("=== 世界书诊断 ===");
+    lines.push("条目 " + rep.summary.entries + " | 问题 " + rep.summary.total + " (错误 " + rep.summary.error + " / 警告 " + rep.summary.warning + " / 提示 " + rep.summary.info + ")");
+    lines.push("");
+    var order = ["error", "warning", "info"];
+    var label = { error: "错误", warning: "警告", info: "提示" };
+    for (oi = 0; oi < order.length; oi += 1) {
+        sub = rep.issues.filter(function (x) { return x.severity === order[oi]; });
+        if (!sub.length) continue;
+        lines.push("[" + label[order[oi]] + "] " + sub.length + " 项");
+        for (i = 0; i < sub.length && i < 30; i += 1) {
+            lines.push("  - " + sub[i].title + (sub[i].entryName ? " (" + sub[i].entryName + ")" : ""));
+            if (sub[i].detail) lines.push("      " + sub[i].detail);
+        }
+        if (sub.length > 30) lines.push("  ... 还有 " + (sub.length - 30) + " 项");
+        lines.push("");
+    }
+    if (!rep.issues.length) lines.push("OK 完全健康");
+    return { success: true, report: rep, text: lines.join("\n") };
+}
+
+async function v3TestMatch(params) {
+    var p2 = params || {};
+    var text = String(p2.text || "");
+    if (!text) return { success: false, code: "NO_TEXT", message: "需要提供 text 参数" };
+    var entries = await wb_data_js_1.readEntries();
+    var list = Array.isArray(entries) ? entries : [];
+    var activated = [];
+    var i, k;
+    for (i = 0; i < list.length; i += 1) {
+        var e = list[i] || {};
+        if (e.enabled === false) continue;
+        if (!wb_match_3.matchesEntry(e, text)) continue;
+        var always = e.always_active === true;
+        var prim = wb_match_3.collectPrimary(e);
+        var hitKeys = [];
+        for (k = 0; k < prim.length; k += 1) {
+            if (wb_match_3.matchOne(e, prim[k], text)) hitKeys.push(prim[k]);
+        }
+        activated.push({
+            id: String(e.id || ""),
+            name: String(e.name || e.id || ""),
+            always: always,
+            reason: always ? "常驻激活" : ("命中 " + hitKeys.length + "/" + prim.length + " 个关键词"),
+            hitKeys: hitKeys,
+            priority: Number(e.priority) || 50
+        });
+    }
+    activated.sort(function (a, b) { return b.priority - a.priority; });
+    var lines = [];
+    lines.push("=== 匹配试跑 ===");
+    lines.push("输入 " + text.length + " 字 | 条目 " + list.length + " | 激活 " + activated.length);
+    lines.push("");
+    if (!activated.length) lines.push("(没有条目会被激活)");
+    else {
+        for (i = 0; i < activated.length; i += 1) {
+            lines.push("  [" + (i + 1) + "] " + activated[i].name + " -- " + activated[i].reason);
+            if (activated[i].hitKeys.length) lines.push("      命中: " + activated[i].hitKeys.join("、"));
+        }
+    }
+    return { success: true, text: lines.join("\n"), activated: activated, inputLength: text.length };
+}
+
+async function v3ExplainEntry(params) {
+    var p2 = params || {};
+    var id = String(p2.id || "");
+    var text = String(p2.text || "");
+    if (!id) return { success: false, code: "NO_ID", message: "需要提供 id 参数" };
+    var entries = await wb_data_js_1.readEntries();
+    var list = Array.isArray(entries) ? entries : [];
+    var target = null;
+    var i, k;
+    for (i = 0; i < list.length; i += 1) {
+        if (String(list[i] && list[i].id) === id) { target = list[i]; break; }
+    }
+    if (!target) return { success: false, code: "NOT_FOUND", message: "条目不存在: " + id };
+    var prim = wb_match_3.collectPrimary(target);
+    var sec = wb_match_3.collectSecondary(target);
+    var lines = [];
+    lines.push("=== 条目解释: " + String(target.name || id) + " ===");
+    lines.push("启用: " + (target.enabled === false ? "否" : "是") + " | 常驻: " + (target.always_active === true ? "是" : "否") + " | 逻辑: " + String(target.keyLogic || "and_any"));
+    lines.push("");
+    lines.push("主关键词 " + prim.length + " 个:");
+    for (k = 0; k < prim.length; k += 1) {
+        var hit = text ? wb_match_3.matchOne(target, prim[k], text) : null;
+        lines.push("  " + (hit === null ? "?" : (hit ? "OK" : "NO")) + " " + prim[k]);
+    }
+    if (sec.length) {
+        lines.push("");
+        lines.push("次要关键词 " + sec.length + " 个 (逻辑 " + String(target.secondaryLogic || "and_any") + "):");
+        for (k = 0; k < sec.length; k += 1) {
+            var h2 = text ? wb_match_3.matchOne(target, sec[k], text) : null;
+            lines.push("  " + (h2 === null ? "?" : (h2 ? "OK" : "NO")) + " " + sec[k]);
+        }
+    }
+    if (text) {
+        lines.push("");
+        lines.push("综合结果: " + (wb_match_3.matchesEntry(target, text) ? "会激活" : "不激活"));
+    }
+    var d = wb_diag_3.diagnoseOneEntry(target);
+    if (d.length) {
+        lines.push("");
+        lines.push("该条目有 " + d.length + " 个问题:");
+        for (k = 0; k < d.length; k += 1) lines.push("  - [" + d[k].severity + "] " + d[k].title);
+    }
+    return { success: true, text: lines.join("\n"), entry: target, issues: d };
+}
+
+exports.wb_audit_keywords = function (p) { return wrap(v3AuditKeywords, p); };
+exports.wb_diagnose = function (p) { return wrap(v3Diagnose, p); };
+exports.wb_test_match = function (p) { return wrap(v3TestMatch, p); };
+exports.wb_explain_entry = function (p) { return wrap(v3ExplainEntry, p); };
