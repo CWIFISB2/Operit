@@ -1088,6 +1088,33 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserWaitFor(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val tRaw = param(tool, "time")?.trim()?.toDoubleOrNull()
+            val txt = param(tool, "text")?.takeIf { it.isNotBlank() }
+            val txtGone = param(tool, "textGone")?.takeIf { it.isNotBlank() }
+            if (tRaw == null && txt == null && txtGone == null) return error(tool.name, "One of time, text, or textGone is required")
+            val deadline = System.currentTimeMillis() + DEFAULT_TIMEOUT_MS.coerceAtLeast(10_000L)
+            if (tRaw != null && tRaw > 0) Thread.sleep((tRaw * 1000.0).toLong().coerceIn(0L, 30_000L))
+            if (txt != null) {
+                var found = false
+                while (System.currentTimeMillis() < deadline) {
+                    val body = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.text(session.id, 20000) }.getOrElse { "" }
+                    if (body.contains(txt)) { found = true; break }
+                    Thread.sleep(300)
+                }
+                if (!found) return error(tool.name, "Timeout waiting for the requested condition")
+            }
+            if (txtGone != null) {
+                var gone = false
+                while (System.currentTimeMillis() < deadline) {
+                    val body2 = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.text(session.id, 20000) }.getOrElse { "" }
+                    if (!body2.contains(txtGone)) { gone = true; break }
+                    Thread.sleep(300)
+                }
+                if (!gone) return error(tool.name, "Timeout waiting for the requested condition")
+            }
+            return ok(tool.name, buildBrowserResponse(code = "cloak:waitFor()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = "waited"))
+        }
         val timeRaw = param(tool, "time")?.trim()?.takeIf { it.isNotBlank() }
         val parsedTimeSeconds = timeRaw?.toDoubleOrNull()
         if (timeRaw != null && parsedTimeSeconds == null) {
@@ -1148,6 +1175,10 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
     private fun browserSnapshot(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
         val selector = param(tool, "selector")?.trim()?.takeIf { it.isNotBlank() }
+        if (session.isCloak) {
+            val html = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.html(session.id, 12000) }.getOrElse { "" }
+            return ok(tool.name, buildBrowserResponse(code = "cloak:snapshot()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = html))
+        }
         val depthRaw = param(tool, "depth")?.trim()?.takeIf { it.isNotBlank() }
         val depth =
             when {
@@ -1188,6 +1219,11 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserNavigateBack(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val out = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.eval(session.id, "history.back(); 'ok'") }.getOrElse { it.message ?: "back failed" }
+            notifySessionStateChanged(session)
+            return ok(tool.name, buildBrowserResponse(code = "cloak:goBack()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = out))
+        }
         val couldGoBack = session.canGoBack || runCatching { session.webView.canGoBack() }.getOrDefault(false)
         val markers = captureActionMarkers(session)
 
@@ -1229,6 +1265,13 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserHover(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
+                ?: return error(tool.name, "ref is required")
+            val js = "(function(){var e=document.querySelector(" + quoteJsCode(ref) + ");if(!e)return 'not_found';e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));return 'hovered';})()"
+            val out = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.eval(session.id, js) }.getOrElse { it.message ?: "hover failed" }
+            return ok(tool.name, buildBrowserResponse(code = "cloak:hover()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = out))
+        }
         val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
             ?: return error(tool.name, "ref is required")
 
@@ -1269,6 +1312,9 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserDrag(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            return error(tool.name, "drag is not supported on cloak engine yet; use browser_evaluate with mouse events")
+        }
         val startRef = param(tool, "startRef")?.trim()?.takeIf { it.isNotBlank() }
             ?: return error(tool.name, "startRef is required")
         val endRef = param(tool, "endRef")?.trim()?.takeIf { it.isNotBlank() }
@@ -1511,6 +1557,13 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserPressKey(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val key = param(tool, "key")?.trim().orEmpty()
+            if (key.isBlank()) return error(tool.name, "key is required")
+            val out = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.pressEnter(session.id) }.getOrElse { it.message ?: "press failed" }
+            notifySessionStateChanged(session)
+            return ok(tool.name, buildBrowserResponse(code = "cloak:pressKey()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = out))
+        }
         val key = param(tool, "key")?.trim()
         if (key.isNullOrBlank()) {
             return error(tool.name, "key is required")
@@ -1578,6 +1631,13 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
             runOnMainSync {
                 getSession(null) ?: createSessionTabOnMain(context.applicationContext, "about:blank")
             }
+        if (session.isCloak) {
+            session.cloakClient?.setDeviceMetrics(width.toInt(), height.toInt(), density.toDouble(), false)
+            session.viewportWidthPx = width
+            session.viewportHeightPx = height
+            notifySessionStateChanged(session)
+            return ok(tool.name, buildBrowserResponse(code = "cloak:resize()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = "Resized cloak viewport to " + width.toInt() + "x" + height.toInt()))
+        }
         runOnMainSync<Unit> {
             ensureSessionAttachedOnMain(session.id)
             session.viewportWidthPx = width
@@ -1603,6 +1663,12 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserRunCode(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val code = param(tool, "code")?.trim()
+            if (code.isNullOrBlank()) return error(tool.name, "code is required")
+            val out = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.eval(session.id, code) }.getOrElse { it.message ?: "runCode failed" }
+            return ok(tool.name, buildBrowserResponse(code = code, openTabs = renderOpenTabs(), pageState = renderPageState(session), result = out))
+        }
         val code = param(tool, "code")?.trim()
         if (code.isNullOrBlank()) {
             return error(tool.name, "code is required")
@@ -1631,6 +1697,17 @@ class StandardBrowserSessionTools(internal val context: Context) : ToolExecutor 
 
     private fun browserSelectOption(tool: AITool): ToolResult {
         val session = getSession(null) ?: return error(tool.name, "No active browser tab")
+        if (session.isCloak) {
+            val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
+                ?: return error(tool.name, "ref is required")
+            val values = parseStringArrayParam(param(tool, "values"))
+                ?: return error(tool.name, "values must be a JSON array")
+            if (values.isEmpty()) return error(tool.name, "values must not be empty")
+            val v = values.first()
+            val js = "(function(){var e=document.querySelector(" + quoteJsCode(ref) + ");if(!e)return 'not_found';e.value=" + quoteJsCode(v) + ";e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return 'selected:'+e.value;})()"
+            val out = runCatching { com.ai.assistance.operit.core.tools.defaultTool.websession.browser.cloak.CloakBrowserTools.eval(session.id, js) }.getOrElse { it.message ?: "select failed" }
+            return ok(tool.name, buildBrowserResponse(code = "cloak:selectOption()", openTabs = renderOpenTabs(), pageState = renderPageState(session), result = out))
+        }
         val ref = param(tool, "ref")?.trim()?.takeIf { it.isNotBlank() }
             ?: return error(tool.name, "ref is required")
         val values = parseStringArrayParam(param(tool, "values"))
