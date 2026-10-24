@@ -104,6 +104,8 @@ internal fun StandardBrowserSessionTools.configureWebView(
     }
     applySessionUserAgent(session, userAgent)
     configureCookiePolicy(session.webView)
+    // 内嵌反检测：DOCUMENT_START_SCRIPT 在页面脚本执行前注入指纹补丁，不依赖外部浏览器
+    BrowserStealthSupport.attach(session.webView, session.id)
 
     session.webView.apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
