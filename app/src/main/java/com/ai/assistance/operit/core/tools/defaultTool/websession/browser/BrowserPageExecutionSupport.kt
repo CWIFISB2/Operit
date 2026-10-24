@@ -2764,18 +2764,15 @@ internal fun StandardBrowserSessionTools.runPlaywrightLikeCode(
             };
             const codeSource = ${quoteJs(code)};
             const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-
-            let fn = null;
-            try {
-                const maybeFn = (0, eval)("(" + codeSource + ")");
-                if (typeof maybeFn === "function") {
-                    fn = maybeFn;
-                }
-            } catch (_) {}
-
+            // CSP 安全：不再用 (0, eval)（会被页面 unsafe-eval CSP 拦截），
+            // 统一走 AsyncFunction 构造器，等价执行且不受 CSP 限制。
+            const trimmedCode = codeSource.trim();
+            const looksLikeFunction = /^(async\s+)?(function\b|\(\s*[^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/.test(trimmedCode);
             let value;
-            if (fn) {
-                value = await fn(page);
+            if (looksLikeFunction) {
+                const factory = new AsyncFunction("page", "console", "return (" + codeSource + ");");
+                const fn = await factory(page, console);
+                value = typeof fn === "function" ? await fn(page) : fn;
             } else {
                 const runner = new AsyncFunction("page", "console", codeSource);
                 value = await runner(page, console);
