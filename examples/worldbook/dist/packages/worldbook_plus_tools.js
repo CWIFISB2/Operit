@@ -163,6 +163,22 @@
       { "name": "name_contains", "description": { "zh": "名称含此串的条目", "en": "Entries whose name contains" }, "type": "string", "required": false },
       { "name": "priority", "description": { "zh": "set_priority 时的目标优先级", "en": "Priority for set_priority" }, "type": "number", "required": false },
       { "name": "character_card_id", "description": { "zh": "bind_card 时的角色卡 ID（空串=解绑）", "en": "Card ID for bind_card" }, "type": "string", "required": false }
+    ]},
+    { "name": "wb_harvest", "description": { "zh": "采集条目使用信号：kind=correction/success，detail 写纠正原因。累积 trials 与 corrections 并重算 reward。", "en": "Harvest entry usage signal: correction/success with detail." }, "parameters": [
+      { "name": "id", "description": { "zh": "条目 ID", "en": "Entry ID" }, "type": "string", "required": true },
+      { "name": "kind", "description": { "zh": "correction（被纠正）/ success（通过）", "en": "correction or success" }, "type": "string", "required": false },
+      { "name": "detail", "description": { "zh": "纠正原因，例如「忘了先查签名」", "en": "Correction reason" }, "type": "string", "required": false }
+    ]},
+    { "name": "wb_evolve", "description": { "zh": "改写条目正文并推进版本：旧版连同 reward 入 history，统计清零重新评估。只有 corrections>0 才放行，force=true 可强改。", "en": "Evolve entry content, push new version, archive previous into history." }, "parameters": [
+      { "name": "id", "description": { "zh": "条目 ID", "en": "Entry ID" }, "type": "string", "required": true },
+      { "name": "content", "description": { "zh": "改写后的新正文", "en": "New content" }, "type": "string", "required": true },
+      { "name": "why", "description": { "zh": "本次改写依据（会存进 history）", "en": "Reason for evolution" }, "type": "string", "required": false },
+      { "name": "force", "description": { "zh": "无纠正记录时强制改写", "en": "Force evolve without correction records" }, "type": "boolean", "required": false }
+    ]},
+    { "name": "wb_rank", "description": { "zh": "按 reward 升序排名（最差的在前），显示 tier/样本/纠正数/版本。persist=true 时把演化字段写回 entries.json。", "en": "Rank entries by reward ascending; persist writes evo fields back." }, "parameters": [
+      { "name": "min_trials", "description": { "zh": "最少样本数，默认 0", "en": "Minimum trials" }, "type": "number", "required": false },
+      { "name": "limit", "description": { "zh": "返回条数，默认全部", "en": "Limit" }, "type": "number", "required": false },
+      { "name": "persist", "description": { "zh": "是否把演化字段写回存储", "en": "Persist evo fields" }, "type": "boolean", "required": false }
     ]}
   ]
 }
@@ -170,6 +186,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const wb_data_js_1 = require("../shared/wb_data.js");
 const task_expectation_bridge_js_1 = require("../shared/task_expectation_bridge.js");
+const wb_evolve_js_1 = require("../shared/wb_evolve.js");
 const GROUPS_FILE = "/sdcard/Download/Operit/plugins/com.operit.worldbook/groups.json";
 const EVENT_FILE = "/sdcard/Download/Operit/plugins/com.operit.worldbook/event_state.json";
 function genId() {
@@ -698,4 +715,61 @@ exports.wbplus_bulk = (params) => wrap(async () => {
     });
     await (0, wb_data_js_1.safeWriteEntries)(next);
     return { success: true, action, affected: targetIds.size };
+});
+
+// ============ 条目演化 3 工具 ============
+exports.wb_harvest = (params) => wrap(async () => {
+    const id = String(params?.id || "").trim();
+    if (!id)
+        return { success: false, message: "missing id" };
+    const entries = await (0, wb_data_js_1.readEntries)();
+    const target = entries.find((e) => String(e.id) === id);
+    if (!target)
+        return { success: false, message: "entry not found: " + id };
+    const kind = String(params?.kind || "correction").toLowerCase();
+    const detail = String(params?.detail || "").trim();
+    (0, wb_evolve_js_1.harvestSignal)(target, { kind, detail });
+    await (0, wb_data_js_1.safeWriteEntries)(entries);
+    const fb = (0, wb_evolve_js_1.buildFeedback)(target);
+    return { success: true, id, name: fb.name, kind, trials: fb.trials, corrections: fb.corrections, reward: fb.reward, tier: fb.tier, shouldEvolve: fb.shouldEvolve };
+});
+exports.wb_evolve = (params) => wrap(async () => {
+    const id = String(params?.id || "").trim();
+    const content = String(params?.content || "").trim();
+    if (!id)
+        return { success: false, message: "missing id" };
+    if (!content)
+        return { success: false, message: "missing content" };
+    const entries = await (0, wb_data_js_1.readEntries)();
+    const target = entries.find((e) => String(e.id) === id);
+    if (!target)
+        return { success: false, message: "entry not found: " + id };
+    (0, wb_evolve_js_1.ensureEvo)(target);
+    const fb = (0, wb_evolve_js_1.buildFeedback)(target);
+    const force = params?.force === true;
+    if (!force && !fb.shouldEvolve) {
+        return { success: false, blocked: true, message: "evolve blocked: corrections=" + fb.corrections + " tier=" + fb.tier + "; pass force=true to override", feedback: fb };
+    }
+    const r = (0, wb_evolve_js_1.applyEvolution)(target, content, String(params?.why || ""));
+    if (!r.changed)
+        return { success: false, message: r.reason, feedback: fb };
+    await (0, wb_data_js_1.safeWriteEntries)(entries);
+    return { success: true, id, name: fb.name, version: r.version, prevVersion: r.prevVersion, before_reward: fb.reward, before_trials: fb.trials, before_corrections: fb.corrections };
+});
+exports.wb_rank = (params) => wrap(async () => {
+    const entries = (await (0, wb_data_js_1.readEntries)()).filter((e) => !(0, task_expectation_bridge_js_1.isReservedEntry)(e));
+    const minTrials = Number(params?.min_trials);
+    const limit = Number(params?.limit);
+    const ranked = (0, wb_evolve_js_1.rankEntries)(entries, Number.isFinite(minTrials) ? minTrials : 0);
+    const top = (Number.isFinite(limit) && limit > 0) ? ranked.slice(0, limit) : ranked;
+    const persist = params?.persist === true;
+    if (persist) {
+        for (const e of entries)
+            (0, wb_evolve_js_1.ensureEvo)(e);
+        await (0, wb_data_js_1.safeWriteEntries)(entries);
+    }
+    const byTier = {};
+    for (const r of ranked)
+        byTier[r.tier] = (byTier[r.tier] || 0) + 1;
+    return { success: true, total: entries.length, effective: ranked.length, persisted: persist, by_tier: byTier, items: top };
 });
